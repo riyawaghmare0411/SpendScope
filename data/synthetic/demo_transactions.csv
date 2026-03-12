@@ -1,0 +1,643 @@
+date,date_iso,description,merchant,type,money_in,money_out,balance,direction,category
+01 Jul 25,2025-07-01,Netflix,Netflix,DEB,,15.73,1443.41,OUT,Subscriptions
+01 Jul 25,2025-07-01,Amazon Prime,Amazon Prime,DEB,,8.99,1434.42,OUT,Subscriptions
+01 Jul 25,2025-07-01,Gym Membership,Gym Membership,DEB,,20.74,1413.68,OUT,Subscriptions
+01 Jul 25,2025-07-01,Tesco,Tesco,DEB,,50.15,1363.53,OUT,Groceries
+01 Jul 25,2025-07-01,TfL,TfL,DEB,,4.7,1358.83,OUT,Transport
+01 Jul 25,2025-07-01,Boots,Boots,DEB,,16.49,1342.34,OUT,Shopping
+01 Jul 25,2025-07-01,Starbucks,Starbucks,DEB,,5.77,1336.57,OUT,Coffee & Cafe
+01 Jul 25,2025-07-01,Costa Coffee,Costa Coffee,DEB,,3.59,1332.98,OUT,Coffee & Cafe
+02 Jul 25,2025-07-02,Council Tax,Council Tax,DEB,,170.46,1162.52,OUT,Bills
+02 Jul 25,2025-07-02,Thames Water,Thames Water,DEB,,44.33,1118.19,OUT,Bills
+02 Jul 25,2025-07-02,Spotify,Spotify,DEB,,10.99,1107.2,OUT,Subscriptions
+02 Jul 25,2025-07-02,TfL,TfL,DEB,,7.62,1099.58,OUT,Transport
+02 Jul 25,2025-07-02,Boots,Boots,DEB,,12.89,1086.69,OUT,Shopping
+03 Jul 25,2025-07-03,Spotify,Spotify,DEB,,10.99,1075.7,OUT,Subscriptions
+03 Jul 25,2025-07-03,iCloud Storage,iCloud Storage,DEB,,2.48,1073.22,OUT,Subscriptions
+03 Jul 25,2025-07-03,TfL,TfL,DEB,,4.96,1068.26,OUT,Transport
+04 Jul 25,2025-07-04,British Gas,British Gas,DEB,,52.65,1015.61,OUT,Bills
+04 Jul 25,2025-07-04,TfL,TfL,DEB,,6.58,1009.03,OUT,Transport
+04 Jul 25,2025-07-04,Nandos,Nandos,DEB,,13.51,995.52,OUT,Eating Out
+04 Jul 25,2025-07-04,McDonalds,McDonalds,DEB,,11.36,984.16,OUT,Eating Out
+04 Jul 25,2025-07-04,Uber Eats,Uber Eats,DEB,,27.56,956.6,OUT,Food Delivery
+04 Jul 25,2025-07-04,Amazon,Amazon,DEB,,51.17,905.43,OUT,Shopping
+04 Jul 25,2025-07-04,Starbucks,Starbucks,DEB,,4.43,901.0,OUT,Coffee & Cafe
+05 Jul 25,2025-07-05,Council Tax,Council Tax,DEB,,175.53,725.47,OUT,Bills
+05 Jul 25,2025-07-05,Gym Membership,Gym Membership,DEB,,31.29,694.18,OUT,Subscriptions
+05 Jul 25,2025-07-05,Tesco,Tesco,DEB,,30.36,663.82,OUT,Groceries
+05 Jul 25,2025-07-05,TfL,TfL,DEB,,5.79,658.03,OUT,Transport
+05 Jul 25,2025-07-05,Deliveroo,Deliveroo,DEB,,33.52,624.51,OUT,Food Delivery
+06 Jul 25,2025-07-06,Nandos,Nandos,DEB,,24.99,599.52,OUT,Eating Out
+07 Jul 25,2025-07-07,Lidl,Lidl,DEB,,25.45,574.07,OUT,Groceries
+07 Jul 25,2025-07-07,TfL,TfL,DEB,,7.12,566.95,OUT,Transport
+07 Jul 25,2025-07-07,Uber,Uber,DEB,,24.22,542.73,OUT,Transport
+08 Jul 25,2025-07-08,Aldi,Aldi,DEB,,31.51,511.22,OUT,Groceries
+08 Jul 25,2025-07-08,TfL,TfL,DEB,,4.09,507.13,OUT,Transport
+08 Jul 25,2025-07-08,Uber,Uber,DEB,,9.89,497.24,OUT,Transport
+09 Jul 25,2025-07-09,Tesco,Tesco,DEB,,36.77,460.47,OUT,Groceries
+09 Jul 25,2025-07-09,Aldi,Aldi,DEB,,40.84,419.63,OUT,Groceries
+09 Jul 25,2025-07-09,TfL,TfL,DEB,,6.45,413.18,OUT,Transport
+09 Jul 25,2025-07-09,Shell Fuel,Shell Fuel,DEB,,33.01,380.17,OUT,Transport
+10 Jul 25,2025-07-10,Tesco,Tesco,DEB,,60.24,319.93,OUT,Groceries
+10 Jul 25,2025-07-10,ASOS,ASOS,DEB,,27.55,292.38,OUT,Shopping
+11 Jul 25,2025-07-11,Tesco,Tesco,DEB,,37.59,254.79,OUT,Groceries
+11 Jul 25,2025-07-11,TfL,TfL,DEB,,4.31,250.48,OUT,Transport
+11 Jul 25,2025-07-11,Nandos,Nandos,DEB,,23.73,226.75,OUT,Eating Out
+12 Jul 25,2025-07-12,Lidl,Lidl,DEB,,15.04,211.71,OUT,Groceries
+12 Jul 25,2025-07-12,TfL,TfL,DEB,,5.48,206.23,OUT,Transport
+12 Jul 25,2025-07-12,Uber Eats,Uber Eats,DEB,,20.31,185.92,OUT,Food Delivery
+12 Jul 25,2025-07-12,Starbucks,Starbucks,DEB,,3.6,182.32,OUT,Coffee & Cafe
+12 Jul 25,2025-07-12,Costa Coffee,Costa Coffee,DEB,,3.49,178.83,OUT,Coffee & Cafe
+13 Jul 25,2025-07-13,Sainsburys,Sainsburys,DEB,,46.3,132.53,OUT,Groceries
+13 Jul 25,2025-07-13,TfL,TfL,DEB,,3.06,129.47,OUT,Transport
+13 Jul 25,2025-07-13,Shell Fuel,Shell Fuel,DEB,,39.97,89.5,OUT,Transport
+14 Jul 25,2025-07-14,Tesco,Tesco,DEB,,26.43,63.07,OUT,Groceries
+14 Jul 25,2025-07-14,TfL,TfL,DEB,,3.39,59.68,OUT,Transport
+14 Jul 25,2025-07-14,Shell Fuel,Shell Fuel,DEB,,46.3,13.38,OUT,Transport
+14 Jul 25,2025-07-14,Boots,Boots,DEB,,13.79,-0.41,OUT,Shopping
+15 Jul 25,2025-07-15,Tesco,Tesco,DEB,,30.21,-30.62,OUT,Groceries
+15 Jul 25,2025-07-15,TfL,TfL,DEB,,2.77,-33.39,OUT,Transport
+15 Jul 25,2025-07-15,Trainline,Trainline,DEB,,37.58,-70.97,OUT,Transport
+15 Jul 25,2025-07-15,Nandos,Nandos,DEB,,18.93,-89.9,OUT,Eating Out
+15 Jul 25,2025-07-15,Starbucks,Starbucks,DEB,,3.25,-93.15,OUT,Coffee & Cafe
+15 Jul 25,2025-07-15,Costa Coffee,Costa Coffee,DEB,,4.08,-97.23,OUT,Coffee & Cafe
+16 Jul 25,2025-07-16,Tesco,Tesco,DEB,,40.52,-137.75,OUT,Groceries
+16 Jul 25,2025-07-16,Sainsburys,Sainsburys,DEB,,57.13,-194.88,OUT,Groceries
+16 Jul 25,2025-07-16,TfL,TfL,DEB,,5.64,-200.52,OUT,Transport
+16 Jul 25,2025-07-16,Starbucks,Starbucks,DEB,,5.09,-205.61,OUT,Coffee & Cafe
+17 Jul 25,2025-07-17,Tesco,Tesco,DEB,,36.5,-242.11,OUT,Groceries
+18 Jul 25,2025-07-18,TfL,TfL,DEB,,7.69,-249.8,OUT,Transport
+18 Jul 25,2025-07-18,Uber,Uber,DEB,,19.4,-269.2,OUT,Transport
+18 Jul 25,2025-07-18,Deliveroo,Deliveroo,DEB,,17.1,-286.3,OUT,Food Delivery
+19 Jul 25,2025-07-19,Tesco,Tesco,DEB,,60.4,-346.7,OUT,Groceries
+19 Jul 25,2025-07-19,TfL,TfL,DEB,,7.88,-354.58,OUT,Transport
+19 Jul 25,2025-07-19,Greggs,Greggs,DEB,,2.27,-356.85,OUT,Eating Out
+19 Jul 25,2025-07-19,ASOS,ASOS,DEB,,33.48,-390.33,OUT,Shopping
+20 Jul 25,2025-07-20,Aldi,Aldi,DEB,,19.93,-410.26,OUT,Groceries
+20 Jul 25,2025-07-20,TfL,TfL,DEB,,5.58,-415.84,OUT,Transport
+20 Jul 25,2025-07-20,Uber Eats,Uber Eats,DEB,,29.2,-445.04,OUT,Food Delivery
+20 Jul 25,2025-07-20,Starbucks,Starbucks,DEB,,4.66,-449.7,OUT,Coffee & Cafe
+20 Jul 25,2025-07-20,Costa Coffee,Costa Coffee,DEB,,3.82,-453.52,OUT,Coffee & Cafe
+21 Jul 25,2025-07-21,TfL,TfL,DEB,,5.27,-458.79,OUT,Transport
+21 Jul 25,2025-07-21,Costa Coffee,Costa Coffee,DEB,,3.08,-461.87,OUT,Coffee & Cafe
+22 Jul 25,2025-07-22,Aldi,Aldi,DEB,,30.76,-492.63,OUT,Groceries
+22 Jul 25,2025-07-22,TfL,TfL,DEB,,7.98,-500.61,OUT,Transport
+22 Jul 25,2025-07-22,Boots,Boots,DEB,,7.2,-507.81,OUT,Shopping
+22 Jul 25,2025-07-22,Starbucks,Starbucks,DEB,,3.35,-511.16,OUT,Coffee & Cafe
+24 Jul 25,2025-07-24,TfL,TfL,DEB,,6.74,-517.9,OUT,Transport
+25 Jul 25,2025-07-25,Uber,Uber,DEB,,24.31,-542.21,OUT,Transport
+25 Jul 25,2025-07-25,McDonalds,McDonalds,DEB,,11.19,-553.4,OUT,Eating Out
+25 Jul 25,2025-07-25,Greggs,Greggs,DEB,,2.86,-556.26,OUT,Eating Out
+25 Jul 25,2025-07-25,Uber Eats,Uber Eats,DEB,,25.63,-581.89,OUT,Food Delivery
+26 Jul 25,2025-07-26,TfL,TfL,DEB,,3.8,-585.69,OUT,Transport
+26 Jul 25,2025-07-26,Uber,Uber,DEB,,11.49,-597.18,OUT,Transport
+26 Jul 25,2025-07-26,Trainline,Trainline,DEB,,35.09,-632.27,OUT,Transport
+27 Jul 25,2025-07-27,Uber,Uber,DEB,,12.63,-644.9,OUT,Transport
+27 Jul 25,2025-07-27,McDonalds,McDonalds,DEB,,10.47,-655.37,OUT,Eating Out
+27 Jul 25,2025-07-27,Pizza Express,Pizza Express,DEB,,36.63,-692.0,OUT,Eating Out
+27 Jul 25,2025-07-27,Starbucks,Starbucks,DEB,,5.41,-697.41,OUT,Coffee & Cafe
+28 Jul 25,2025-07-28,Tesco,Tesco,DEB,,27.13,-724.54,OUT,Groceries
+28 Jul 25,2025-07-28,Aldi,Aldi,DEB,,15.29,-739.83,OUT,Groceries
+29 Jul 25,2025-07-29,TfL,TfL,DEB,,2.15,-741.98,OUT,Transport
+29 Jul 25,2025-07-29,McDonalds,McDonalds,DEB,,10.41,-752.39,OUT,Eating Out
+29 Jul 25,2025-07-29,Starbucks,Starbucks,DEB,,4.36,-756.75,OUT,Coffee & Cafe
+30 Jul 25,2025-07-30,TfL,TfL,DEB,,7.89,-764.64,OUT,Transport
+30 Jul 25,2025-07-30,Nandos,Nandos,DEB,,12.69,-777.33,OUT,Eating Out
+30 Jul 25,2025-07-30,Deliveroo,Deliveroo,DEB,,16.88,-794.21,OUT,Food Delivery
+30 Jul 25,2025-07-30,Amazon,Amazon,DEB,,36.68,-830.89,OUT,Shopping
+31 Jul 25,2025-07-31,Sainsburys,Sainsburys,DEB,,52.65,-883.54,OUT,Groceries
+31 Jul 25,2025-07-31,Aldi,Aldi,DEB,,24.33,-907.87,OUT,Groceries
+31 Jul 25,2025-07-31,TfL,TfL,DEB,,2.09,-909.96,OUT,Transport
+31 Jul 25,2025-07-31,McDonalds,McDonalds,DEB,,7.03,-916.99,OUT,Eating Out
+31 Jul 25,2025-07-31,Costa Coffee,Costa Coffee,DEB,,5.0,-921.99,OUT,Coffee & Cafe
+01 Aug 25,2025-08-01,Landlord Payment,Landlord Payment,DEB,,894.16,-1816.15,OUT,Rent
+01 Aug 25,2025-08-01,British Gas,British Gas,DEB,,111.94,-1928.09,OUT,Bills
+01 Aug 25,2025-08-01,Amazon Prime,Amazon Prime,DEB,,8.99,-1937.08,OUT,Subscriptions
+01 Aug 25,2025-08-01,TfL,TfL,DEB,,5.63,-1942.71,OUT,Transport
+01 Aug 25,2025-08-01,Uber,Uber,DEB,,19.04,-1961.75,OUT,Transport
+01 Aug 25,2025-08-01,Costa Coffee,Costa Coffee,DEB,,4.85,-1966.6,OUT,Coffee & Cafe
+02 Aug 25,2025-08-02,Netflix,Netflix,DEB,,14.88,-1981.48,OUT,Subscriptions
+02 Aug 25,2025-08-02,TfL,TfL,DEB,,7.5,-1988.98,OUT,Transport
+02 Aug 25,2025-08-02,Uber,Uber,DEB,,10.75,-1999.73,OUT,Transport
+03 Aug 25,2025-08-03,Council Tax,Council Tax,DEB,,102.9,-2102.63,OUT,Bills
+03 Aug 25,2025-08-03,British Gas,British Gas,DEB,,96.22,-2198.85,OUT,Bills
+03 Aug 25,2025-08-03,Thames Water,Thames Water,DEB,,48.04,-2246.89,OUT,Bills
+03 Aug 25,2025-08-03,Netflix,Netflix,DEB,,11.03,-2257.92,OUT,Subscriptions
+03 Aug 25,2025-08-03,Tesco,Tesco,DEB,,52.49,-2310.41,OUT,Groceries
+03 Aug 25,2025-08-03,Sainsburys,Sainsburys,DEB,,46.04,-2356.45,OUT,Groceries
+03 Aug 25,2025-08-03,TfL,TfL,DEB,,4.22,-2360.67,OUT,Transport
+03 Aug 25,2025-08-03,McDonalds,McDonalds,DEB,,4.42,-2365.09,OUT,Eating Out
+04 Aug 25,2025-08-04,Netflix,Netflix,DEB,,17.88,-2382.97,OUT,Subscriptions
+04 Aug 25,2025-08-04,TfL,TfL,DEB,,4.98,-2387.95,OUT,Transport
+05 Aug 25,2025-08-05,Thames Water,Thames Water,DEB,,36.5,-2424.45,OUT,Bills
+05 Aug 25,2025-08-05,Aldi,Aldi,DEB,,44.82,-2469.27,OUT,Groceries
+05 Aug 25,2025-08-05,TfL,TfL,DEB,,6.67,-2475.94,OUT,Transport
+05 Aug 25,2025-08-05,Uber,Uber,DEB,,17.66,-2493.6,OUT,Transport
+06 Aug 25,2025-08-06,TfL,TfL,DEB,,4.77,-2498.37,OUT,Transport
+06 Aug 25,2025-08-06,Uber,Uber,DEB,,12.37,-2510.74,OUT,Transport
+06 Aug 25,2025-08-06,McDonalds,McDonalds,DEB,,8.35,-2519.09,OUT,Eating Out
+06 Aug 25,2025-08-06,Just Eat,Just Eat,DEB,,26.36,-2545.45,OUT,Food Delivery
+07 Aug 25,2025-08-07,Trainline,Trainline,DEB,,54.16,-2599.61,OUT,Transport
+08 Aug 25,2025-08-08,TfL,TfL,DEB,,3.29,-2602.9,OUT,Transport
+08 Aug 25,2025-08-08,McDonalds,McDonalds,DEB,,10.6,-2613.5,OUT,Eating Out
+08 Aug 25,2025-08-08,Greggs,Greggs,DEB,,6.63,-2620.13,OUT,Eating Out
+08 Aug 25,2025-08-08,Uber Eats,Uber Eats,DEB,,16.74,-2636.87,OUT,Food Delivery
+08 Aug 25,2025-08-08,Amazon,Amazon,DEB,,40.79,-2677.66,OUT,Shopping
+08 Aug 25,2025-08-08,Costa Coffee,Costa Coffee,DEB,,3.88,-2681.54,OUT,Coffee & Cafe
+09 Aug 25,2025-08-09,TfL,TfL,DEB,,6.62,-2688.16,OUT,Transport
+09 Aug 25,2025-08-09,Deliveroo,Deliveroo,DEB,,23.05,-2711.21,OUT,Food Delivery
+09 Aug 25,2025-08-09,Starbucks,Starbucks,DEB,,4.35,-2715.56,OUT,Coffee & Cafe
+10 Aug 25,2025-08-10,Tesco,Tesco,DEB,,79.59,-2795.15,OUT,Groceries
+10 Aug 25,2025-08-10,Aldi,Aldi,DEB,,47.23,-2842.38,OUT,Groceries
+10 Aug 25,2025-08-10,TfL,TfL,DEB,,6.75,-2849.13,OUT,Transport
+10 Aug 25,2025-08-10,Uber,Uber,DEB,,10.74,-2859.87,OUT,Transport
+10 Aug 25,2025-08-10,Pizza Express,Pizza Express,DEB,,16.98,-2876.85,OUT,Eating Out
+10 Aug 25,2025-08-10,Costa Coffee,Costa Coffee,DEB,,3.84,-2880.69,OUT,Coffee & Cafe
+11 Aug 25,2025-08-11,Aldi,Aldi,DEB,,24.11,-2904.8,OUT,Groceries
+11 Aug 25,2025-08-11,TfL,TfL,DEB,,6.01,-2910.81,OUT,Transport
+11 Aug 25,2025-08-11,Pizza Express,Pizza Express,DEB,,36.83,-2947.64,OUT,Eating Out
+11 Aug 25,2025-08-11,Deliveroo,Deliveroo,DEB,,20.9,-2968.54,OUT,Food Delivery
+11 Aug 25,2025-08-11,Starbucks,Starbucks,DEB,,4.75,-2973.29,OUT,Coffee & Cafe
+12 Aug 25,2025-08-12,Tesco,Tesco,DEB,,20.12,-2993.41,OUT,Groceries
+12 Aug 25,2025-08-12,TfL,TfL,DEB,,4.39,-2997.8,OUT,Transport
+12 Aug 25,2025-08-12,Shell Fuel,Shell Fuel,DEB,,55.88,-3053.68,OUT,Transport
+12 Aug 25,2025-08-12,Greggs,Greggs,DEB,,5.93,-3059.61,OUT,Eating Out
+13 Aug 25,2025-08-13,Tesco,Tesco,DEB,,29.59,-3089.2,OUT,Groceries
+13 Aug 25,2025-08-13,TfL,TfL,DEB,,4.66,-3093.86,OUT,Transport
+13 Aug 25,2025-08-13,Deliveroo,Deliveroo,DEB,,27.44,-3121.3,OUT,Food Delivery
+13 Aug 25,2025-08-13,ASOS,ASOS,DEB,,70.16,-3191.46,OUT,Shopping
+13 Aug 25,2025-08-13,Costa Coffee,Costa Coffee,DEB,,3.47,-3194.93,OUT,Coffee & Cafe
+14 Aug 25,2025-08-14,TfL,TfL,DEB,,3.5,-3198.43,OUT,Transport
+14 Aug 25,2025-08-14,Uber,Uber,DEB,,19.71,-3218.14,OUT,Transport
+15 Aug 25,2025-08-15,Sainsburys,Sainsburys,DEB,,16.05,-3234.19,OUT,Groceries
+15 Aug 25,2025-08-15,Aldi,Aldi,DEB,,41.61,-3275.8,OUT,Groceries
+15 Aug 25,2025-08-15,Lidl,Lidl,DEB,,24.39,-3300.19,OUT,Groceries
+15 Aug 25,2025-08-15,TfL,TfL,DEB,,6.82,-3307.01,OUT,Transport
+15 Aug 25,2025-08-15,Shell Fuel,Shell Fuel,DEB,,42.37,-3349.38,OUT,Transport
+15 Aug 25,2025-08-15,Uber Eats,Uber Eats,DEB,,29.45,-3378.83,OUT,Food Delivery
+16 Aug 25,2025-08-16,McDonalds,McDonalds,DEB,,5.73,-3384.56,OUT,Eating Out
+16 Aug 25,2025-08-16,ATM Withdrawal,ATM Withdrawal,DEB,,23.64,-3408.2,OUT,Cash
+17 Aug 25,2025-08-17,TfL,TfL,DEB,,2.36,-3410.56,OUT,Transport
+18 Aug 25,2025-08-18,TfL,TfL,DEB,,2.14,-3412.7,OUT,Transport
+18 Aug 25,2025-08-18,Greggs,Greggs,DEB,,4.97,-3417.67,OUT,Eating Out
+19 Aug 25,2025-08-19,TfL,TfL,DEB,,4.24,-3421.91,OUT,Transport
+19 Aug 25,2025-08-19,Deliveroo,Deliveroo,DEB,,28.41,-3450.32,OUT,Food Delivery
+20 Aug 25,2025-08-20,TfL,TfL,DEB,,6.78,-3457.1,OUT,Transport
+20 Aug 25,2025-08-20,Shell Fuel,Shell Fuel,DEB,,48.98,-3506.08,OUT,Transport
+20 Aug 25,2025-08-20,Costa Coffee,Costa Coffee,DEB,,4.9,-3510.98,OUT,Coffee & Cafe
+21 Aug 25,2025-08-21,Lidl,Lidl,DEB,,9.83,-3520.81,OUT,Groceries
+21 Aug 25,2025-08-21,TfL,TfL,DEB,,3.95,-3524.76,OUT,Transport
+22 Aug 25,2025-08-22,Tesco,Tesco,DEB,,55.75,-3580.51,OUT,Groceries
+23 Aug 25,2025-08-23,Aldi,Aldi,DEB,,36.12,-3616.63,OUT,Groceries
+23 Aug 25,2025-08-23,TfL,TfL,DEB,,5.9,-3622.53,OUT,Transport
+23 Aug 25,2025-08-23,Nandos,Nandos,DEB,,21.07,-3643.6,OUT,Eating Out
+23 Aug 25,2025-08-23,Uber Eats,Uber Eats,DEB,,28.43,-3672.03,OUT,Food Delivery
+25 Aug 25,2025-08-25,Employer Salary,Employer Salary,FPI,2114.13,,-1557.9,IN,Income
+25 Aug 25,2025-08-25,Side Gig Payment,Side Gig Payment,FPI,130.9,,-1427.0,IN,Income
+25 Aug 25,2025-08-25,TfL,TfL,DEB,,6.01,-1433.01,OUT,Transport
+26 Aug 25,2025-08-26,Tesco,Tesco,DEB,,47.31,-1480.32,OUT,Groceries
+26 Aug 25,2025-08-26,Sainsburys,Sainsburys,DEB,,35.12,-1515.44,OUT,Groceries
+26 Aug 25,2025-08-26,TfL,TfL,DEB,,3.97,-1519.41,OUT,Transport
+26 Aug 25,2025-08-26,McDonalds,McDonalds,DEB,,7.59,-1527.0,OUT,Eating Out
+26 Aug 25,2025-08-26,Just Eat,Just Eat,DEB,,18.32,-1545.32,OUT,Food Delivery
+26 Aug 25,2025-08-26,ATM Withdrawal,ATM Withdrawal,DEB,,47.56,-1592.88,OUT,Cash
+27 Aug 25,2025-08-27,Starbucks,Starbucks,DEB,,3.07,-1595.95,OUT,Coffee & Cafe
+28 Aug 25,2025-08-28,Employer Salary,Employer Salary,FPI,2704.29,,1108.34,IN,Income
+28 Aug 25,2025-08-28,TfL,TfL,DEB,,5.56,1102.78,OUT,Transport
+28 Aug 25,2025-08-28,McDonalds,McDonalds,DEB,,6.95,1095.83,OUT,Eating Out
+30 Aug 25,2025-08-30,Tesco,Tesco,DEB,,33.29,1062.54,OUT,Groceries
+30 Aug 25,2025-08-30,Aldi,Aldi,DEB,,12.91,1049.63,OUT,Groceries
+30 Aug 25,2025-08-30,TfL,TfL,DEB,,6.03,1043.6,OUT,Transport
+30 Aug 25,2025-08-30,Starbucks,Starbucks,DEB,,3.96,1039.64,OUT,Coffee & Cafe
+31 Aug 25,2025-08-31,TfL,TfL,DEB,,2.88,1036.76,OUT,Transport
+01 Sep 25,2025-09-01,Amazon Prime,Amazon Prime,DEB,,8.99,1027.77,OUT,Subscriptions
+01 Sep 25,2025-09-01,Gym Membership,Gym Membership,DEB,,43.63,984.14,OUT,Subscriptions
+01 Sep 25,2025-09-01,iCloud Storage,iCloud Storage,DEB,,2.52,981.62,OUT,Subscriptions
+01 Sep 25,2025-09-01,TfL,TfL,DEB,,5.03,976.59,OUT,Transport
+01 Sep 25,2025-09-01,Pizza Express,Pizza Express,DEB,,28.79,947.8,OUT,Eating Out
+01 Sep 25,2025-09-01,Deliveroo,Deliveroo,DEB,,24.18,923.62,OUT,Food Delivery
+01 Sep 25,2025-09-01,Amazon,Amazon,DEB,,82.25,841.37,OUT,Shopping
+01 Sep 25,2025-09-01,Starbucks,Starbucks,DEB,,3.29,838.08,OUT,Coffee & Cafe
+01 Sep 25,2025-09-01,Costa Coffee,Costa Coffee,DEB,,3.38,834.7,OUT,Coffee & Cafe
+02 Sep 25,2025-09-02,Gym Membership,Gym Membership,DEB,,44.76,789.94,OUT,Subscriptions
+02 Sep 25,2025-09-02,iCloud Storage,iCloud Storage,DEB,,1.59,788.35,OUT,Subscriptions
+02 Sep 25,2025-09-02,Sainsburys,Sainsburys,DEB,,59.54,728.81,OUT,Groceries
+02 Sep 25,2025-09-02,Lidl,Lidl,DEB,,19.18,709.63,OUT,Groceries
+02 Sep 25,2025-09-02,TfL,TfL,DEB,,4.86,704.77,OUT,Transport
+02 Sep 25,2025-09-02,Shell Fuel,Shell Fuel,DEB,,63.81,640.96,OUT,Transport
+03 Sep 25,2025-09-03,Council Tax,Council Tax,DEB,,101.57,539.39,OUT,Bills
+03 Sep 25,2025-09-03,Gym Membership,Gym Membership,DEB,,24.06,515.33,OUT,Subscriptions
+03 Sep 25,2025-09-03,TfL,TfL,DEB,,6.44,508.89,OUT,Transport
+03 Sep 25,2025-09-03,Shell Fuel,Shell Fuel,DEB,,59.82,449.07,OUT,Transport
+03 Sep 25,2025-09-03,McDonalds,McDonalds,DEB,,5.09,443.98,OUT,Eating Out
+03 Sep 25,2025-09-03,Greggs,Greggs,DEB,,5.63,438.35,OUT,Eating Out
+04 Sep 25,2025-09-04,iCloud Storage,iCloud Storage,DEB,,2.41,435.94,OUT,Subscriptions
+04 Sep 25,2025-09-04,TfL,TfL,DEB,,3.85,432.09,OUT,Transport
+04 Sep 25,2025-09-04,Deliveroo,Deliveroo,DEB,,20.14,411.95,OUT,Food Delivery
+04 Sep 25,2025-09-04,Uber Eats,Uber Eats,DEB,,21.96,389.99,OUT,Food Delivery
+05 Sep 25,2025-09-05,Tesco,Tesco,DEB,,25.7,364.29,OUT,Groceries
+05 Sep 25,2025-09-05,Greggs,Greggs,DEB,,4.37,359.92,OUT,Eating Out
+06 Sep 25,2025-09-06,TfL,TfL,DEB,,5.55,354.37,OUT,Transport
+06 Sep 25,2025-09-06,Starbucks,Starbucks,DEB,,4.98,349.39,OUT,Coffee & Cafe
+07 Sep 25,2025-09-07,Tesco,Tesco,DEB,,77.63,271.76,OUT,Groceries
+07 Sep 25,2025-09-07,Uber,Uber,DEB,,9.96,261.8,OUT,Transport
+07 Sep 25,2025-09-07,Amazon,Amazon,DEB,,14.37,247.43,OUT,Shopping
+08 Sep 25,2025-09-08,Sainsburys,Sainsburys,DEB,,50.72,196.71,OUT,Groceries
+08 Sep 25,2025-09-08,TfL,TfL,DEB,,6.71,190.0,OUT,Transport
+08 Sep 25,2025-09-08,Shell Fuel,Shell Fuel,DEB,,58.88,131.12,OUT,Transport
+08 Sep 25,2025-09-08,McDonalds,McDonalds,DEB,,3.4,127.72,OUT,Eating Out
+08 Sep 25,2025-09-08,Pizza Express,Pizza Express,DEB,,23.58,104.14,OUT,Eating Out
+08 Sep 25,2025-09-08,Deliveroo,Deliveroo,DEB,,30.4,73.74,OUT,Food Delivery
+09 Sep 25,2025-09-09,Tesco,Tesco,DEB,,21.11,52.63,OUT,Groceries
+09 Sep 25,2025-09-09,TfL,TfL,DEB,,6.8,45.83,OUT,Transport
+09 Sep 25,2025-09-09,Amazon,Amazon,DEB,,38.44,7.39,OUT,Shopping
+10 Sep 25,2025-09-10,TfL,TfL,DEB,,5.22,2.17,OUT,Transport
+10 Sep 25,2025-09-10,Greggs,Greggs,DEB,,7.05,-4.88,OUT,Eating Out
+11 Sep 25,2025-09-11,Tesco,Tesco,DEB,,26.65,-31.53,OUT,Groceries
+11 Sep 25,2025-09-11,TfL,TfL,DEB,,5.06,-36.59,OUT,Transport
+11 Sep 25,2025-09-11,Starbucks,Starbucks,DEB,,3.79,-40.38,OUT,Coffee & Cafe
+12 Sep 25,2025-09-12,TfL,TfL,DEB,,5.58,-45.96,OUT,Transport
+12 Sep 25,2025-09-12,Uber,Uber,DEB,,24.58,-70.54,OUT,Transport
+12 Sep 25,2025-09-12,Amazon,Amazon,DEB,,31.35,-101.89,OUT,Shopping
+12 Sep 25,2025-09-12,Starbucks,Starbucks,DEB,,3.97,-105.86,OUT,Coffee & Cafe
+13 Sep 25,2025-09-13,TfL,TfL,DEB,,4.93,-110.79,OUT,Transport
+14 Sep 25,2025-09-14,McDonalds,McDonalds,DEB,,6.24,-117.03,OUT,Eating Out
+14 Sep 25,2025-09-14,Greggs,Greggs,DEB,,5.99,-123.02,OUT,Eating Out
+14 Sep 25,2025-09-14,Deliveroo,Deliveroo,DEB,,26.39,-149.41,OUT,Food Delivery
+14 Sep 25,2025-09-14,Starbucks,Starbucks,DEB,,4.78,-154.19,OUT,Coffee & Cafe
+15 Sep 25,2025-09-15,Sainsburys,Sainsburys,DEB,,22.23,-176.42,OUT,Groceries
+15 Sep 25,2025-09-15,Greggs,Greggs,DEB,,5.9,-182.32,OUT,Eating Out
+15 Sep 25,2025-09-15,Starbucks,Starbucks,DEB,,5.26,-187.58,OUT,Coffee & Cafe
+16 Sep 25,2025-09-16,Lidl,Lidl,DEB,,34.65,-222.23,OUT,Groceries
+16 Sep 25,2025-09-16,Boots,Boots,DEB,,14.03,-236.26,OUT,Shopping
+17 Sep 25,2025-09-17,Tesco,Tesco,DEB,,7.99,-244.25,OUT,Groceries
+17 Sep 25,2025-09-17,Sainsburys,Sainsburys,DEB,,48.41,-292.66,OUT,Groceries
+17 Sep 25,2025-09-17,TfL,TfL,DEB,,4.49,-297.15,OUT,Transport
+17 Sep 25,2025-09-17,Starbucks,Starbucks,DEB,,5.1,-302.25,OUT,Coffee & Cafe
+18 Sep 25,2025-09-18,Aldi,Aldi,DEB,,10.51,-312.76,OUT,Groceries
+18 Sep 25,2025-09-18,TfL,TfL,DEB,,4.98,-317.74,OUT,Transport
+19 Sep 25,2025-09-19,Sainsburys,Sainsburys,DEB,,45.74,-363.48,OUT,Groceries
+19 Sep 25,2025-09-19,Aldi,Aldi,DEB,,44.35,-407.83,OUT,Groceries
+19 Sep 25,2025-09-19,Lidl,Lidl,DEB,,6.61,-414.44,OUT,Groceries
+19 Sep 25,2025-09-19,TfL,TfL,DEB,,7.52,-421.96,OUT,Transport
+19 Sep 25,2025-09-19,Uber,Uber,DEB,,24.21,-446.17,OUT,Transport
+19 Sep 25,2025-09-19,Trainline,Trainline,DEB,,66.22,-512.39,OUT,Transport
+19 Sep 25,2025-09-19,Amazon,Amazon,DEB,,68.97,-581.36,OUT,Shopping
+19 Sep 25,2025-09-19,Starbucks,Starbucks,DEB,,4.2,-585.56,OUT,Coffee & Cafe
+20 Sep 25,2025-09-20,Greggs,Greggs,DEB,,7.59,-593.15,OUT,Eating Out
+20 Sep 25,2025-09-20,Pizza Express,Pizza Express,DEB,,28.54,-621.69,OUT,Eating Out
+20 Sep 25,2025-09-20,Just Eat,Just Eat,DEB,,16.03,-637.72,OUT,Food Delivery
+20 Sep 25,2025-09-20,Starbucks,Starbucks,DEB,,5.95,-643.67,OUT,Coffee & Cafe
+21 Sep 25,2025-09-21,TfL,TfL,DEB,,2.37,-646.04,OUT,Transport
+21 Sep 25,2025-09-21,Starbucks,Starbucks,DEB,,4.35,-650.39,OUT,Coffee & Cafe
+22 Sep 25,2025-09-22,Aldi,Aldi,DEB,,43.44,-693.83,OUT,Groceries
+22 Sep 25,2025-09-22,TfL,TfL,DEB,,3.49,-697.32,OUT,Transport
+22 Sep 25,2025-09-22,Greggs,Greggs,DEB,,4.43,-701.75,OUT,Eating Out
+22 Sep 25,2025-09-22,ASOS,ASOS,DEB,,68.97,-770.72,OUT,Shopping
+22 Sep 25,2025-09-22,Starbucks,Starbucks,DEB,,5.47,-776.19,OUT,Coffee & Cafe
+23 Sep 25,2025-09-23,Tesco,Tesco,DEB,,68.55,-844.74,OUT,Groceries
+23 Sep 25,2025-09-23,Aldi,Aldi,DEB,,47.69,-892.43,OUT,Groceries
+23 Sep 25,2025-09-23,Lidl,Lidl,DEB,,37.34,-929.77,OUT,Groceries
+23 Sep 25,2025-09-23,TfL,TfL,DEB,,6.35,-936.12,OUT,Transport
+23 Sep 25,2025-09-23,Starbucks,Starbucks,DEB,,4.15,-940.27,OUT,Coffee & Cafe
+24 Sep 25,2025-09-24,Aldi,Aldi,DEB,,22.76,-963.03,OUT,Groceries
+24 Sep 25,2025-09-24,Trainline,Trainline,DEB,,79.41,-1042.44,OUT,Transport
+25 Sep 25,2025-09-25,Aldi,Aldi,DEB,,49.52,-1091.96,OUT,Groceries
+25 Sep 25,2025-09-25,TfL,TfL,DEB,,3.85,-1095.81,OUT,Transport
+25 Sep 25,2025-09-25,Greggs,Greggs,DEB,,7.51,-1103.32,OUT,Eating Out
+25 Sep 25,2025-09-25,Deliveroo,Deliveroo,DEB,,28.49,-1131.81,OUT,Food Delivery
+25 Sep 25,2025-09-25,Primark,Primark,DEB,,33.46,-1165.27,OUT,Shopping
+26 Sep 25,2025-09-26,Greggs,Greggs,DEB,,3.84,-1169.11,OUT,Eating Out
+26 Sep 25,2025-09-26,Deliveroo,Deliveroo,DEB,,28.76,-1197.87,OUT,Food Delivery
+26 Sep 25,2025-09-26,Boots,Boots,DEB,,20.06,-1217.93,OUT,Shopping
+27 Sep 25,2025-09-27,TfL,TfL,DEB,,3.26,-1221.19,OUT,Transport
+27 Sep 25,2025-09-27,McDonalds,McDonalds,DEB,,6.94,-1228.13,OUT,Eating Out
+28 Sep 25,2025-09-28,Tesco,Tesco,DEB,,10.63,-1238.76,OUT,Groceries
+28 Sep 25,2025-09-28,Costa Coffee,Costa Coffee,DEB,,3.79,-1242.55,OUT,Coffee & Cafe
+29 Sep 25,2025-09-29,Tesco,Tesco,DEB,,6.93,-1249.48,OUT,Groceries
+29 Sep 25,2025-09-29,Lidl,Lidl,DEB,,34.53,-1284.01,OUT,Groceries
+29 Sep 25,2025-09-29,TfL,TfL,DEB,,4.38,-1288.39,OUT,Transport
+29 Sep 25,2025-09-29,Shell Fuel,Shell Fuel,DEB,,51.77,-1340.16,OUT,Transport
+29 Sep 25,2025-09-29,Starbucks,Starbucks,DEB,,4.03,-1344.19,OUT,Coffee & Cafe
+30 Sep 25,2025-09-30,Sainsburys,Sainsburys,DEB,,54.65,-1398.84,OUT,Groceries
+30 Sep 25,2025-09-30,Greggs,Greggs,DEB,,7.91,-1406.75,OUT,Eating Out
+01 Oct 25,2025-10-01,Landlord Payment,Landlord Payment,DEB,,832.86,-2239.61,OUT,Rent
+01 Oct 25,2025-10-01,Gym Membership,Gym Membership,DEB,,39.66,-2279.27,OUT,Subscriptions
+01 Oct 25,2025-10-01,Aldi,Aldi,DEB,,15.99,-2295.26,OUT,Groceries
+01 Oct 25,2025-10-01,TfL,TfL,DEB,,7.79,-2303.05,OUT,Transport
+01 Oct 25,2025-10-01,Uber,Uber,DEB,,7.11,-2310.16,OUT,Transport
+02 Oct 25,2025-10-02,TfL,TfL,DEB,,3.8,-2313.96,OUT,Transport
+02 Oct 25,2025-10-02,Greggs,Greggs,DEB,,4.65,-2318.61,OUT,Eating Out
+02 Oct 25,2025-10-02,Boots,Boots,DEB,,22.74,-2341.35,OUT,Shopping
+03 Oct 25,2025-10-03,iCloud Storage,iCloud Storage,DEB,,2.4,-2343.75,OUT,Subscriptions
+03 Oct 25,2025-10-03,TfL,TfL,DEB,,2.18,-2345.93,OUT,Transport
+04 Oct 25,2025-10-04,Council Tax,Council Tax,DEB,,151.33,-2497.26,OUT,Bills
+04 Oct 25,2025-10-04,Thames Water,Thames Water,DEB,,47.79,-2545.05,OUT,Bills
+04 Oct 25,2025-10-04,TfL,TfL,DEB,,7.37,-2552.42,OUT,Transport
+04 Oct 25,2025-10-04,Deliveroo,Deliveroo,DEB,,34.99,-2587.41,OUT,Food Delivery
+05 Oct 25,2025-10-05,Spotify,Spotify,DEB,,10.99,-2598.4,OUT,Subscriptions
+05 Oct 25,2025-10-05,Gym Membership,Gym Membership,DEB,,30.1,-2628.5,OUT,Subscriptions
+05 Oct 25,2025-10-05,TfL,TfL,DEB,,4.51,-2633.01,OUT,Transport
+05 Oct 25,2025-10-05,Trainline,Trainline,DEB,,59.56,-2692.57,OUT,Transport
+05 Oct 25,2025-10-05,Starbucks,Starbucks,DEB,,3.29,-2695.86,OUT,Coffee & Cafe
+05 Oct 25,2025-10-05,Costa Coffee,Costa Coffee,DEB,,3.52,-2699.38,OUT,Coffee & Cafe
+06 Oct 25,2025-10-06,Tesco,Tesco,DEB,,27.05,-2726.43,OUT,Groceries
+06 Oct 25,2025-10-06,TfL,TfL,DEB,,7.67,-2734.1,OUT,Transport
+06 Oct 25,2025-10-06,Uber,Uber,DEB,,22.79,-2756.89,OUT,Transport
+06 Oct 25,2025-10-06,Greggs,Greggs,DEB,,7.13,-2764.02,OUT,Eating Out
+07 Oct 25,2025-10-07,Aldi,Aldi,DEB,,34.58,-2798.6,OUT,Groceries
+07 Oct 25,2025-10-07,TfL,TfL,DEB,,7.79,-2806.39,OUT,Transport
+07 Oct 25,2025-10-07,Trainline,Trainline,DEB,,23.96,-2830.35,OUT,Transport
+07 Oct 25,2025-10-07,Nandos,Nandos,DEB,,13.48,-2843.83,OUT,Eating Out
+07 Oct 25,2025-10-07,Greggs,Greggs,DEB,,6.06,-2849.89,OUT,Eating Out
+07 Oct 25,2025-10-07,Amazon,Amazon,DEB,,41.44,-2891.33,OUT,Shopping
+08 Oct 25,2025-10-08,Tesco,Tesco,DEB,,59.54,-2950.87,OUT,Groceries
+08 Oct 25,2025-10-08,Sainsburys,Sainsburys,DEB,,45.37,-2996.24,OUT,Groceries
+08 Oct 25,2025-10-08,TfL,TfL,DEB,,5.9,-3002.14,OUT,Transport
+08 Oct 25,2025-10-08,Uber,Uber,DEB,,22.53,-3024.67,OUT,Transport
+08 Oct 25,2025-10-08,Nandos,Nandos,DEB,,24.91,-3049.58,OUT,Eating Out
+08 Oct 25,2025-10-08,Pizza Express,Pizza Express,DEB,,32.24,-3081.82,OUT,Eating Out
+09 Oct 25,2025-10-09,Tesco,Tesco,DEB,,12.97,-3094.79,OUT,Groceries
+09 Oct 25,2025-10-09,Aldi,Aldi,DEB,,20.52,-3115.31,OUT,Groceries
+09 Oct 25,2025-10-09,TfL,TfL,DEB,,6.22,-3121.53,OUT,Transport
+09 Oct 25,2025-10-09,Trainline,Trainline,DEB,,44.74,-3166.27,OUT,Transport
+09 Oct 25,2025-10-09,Greggs,Greggs,DEB,,6.03,-3172.3,OUT,Eating Out
+09 Oct 25,2025-10-09,Amazon,Amazon,DEB,,53.61,-3225.91,OUT,Shopping
+09 Oct 25,2025-10-09,Starbucks,Starbucks,DEB,,5.97,-3231.88,OUT,Coffee & Cafe
+10 Oct 25,2025-10-10,Tesco,Tesco,DEB,,15.38,-3247.26,OUT,Groceries
+10 Oct 25,2025-10-10,McDonalds,McDonalds,DEB,,6.6,-3253.86,OUT,Eating Out
+11 Oct 25,2025-10-11,TfL,TfL,DEB,,5.93,-3259.79,OUT,Transport
+11 Oct 25,2025-10-11,Uber,Uber,DEB,,22.37,-3282.16,OUT,Transport
+11 Oct 25,2025-10-11,Costa Coffee,Costa Coffee,DEB,,4.65,-3286.81,OUT,Coffee & Cafe
+12 Oct 25,2025-10-12,Tesco,Tesco,DEB,,77.76,-3364.57,OUT,Groceries
+12 Oct 25,2025-10-12,Sainsburys,Sainsburys,DEB,,17.25,-3381.82,OUT,Groceries
+12 Oct 25,2025-10-12,TfL,TfL,DEB,,4.75,-3386.57,OUT,Transport
+12 Oct 25,2025-10-12,McDonalds,McDonalds,DEB,,7.48,-3394.05,OUT,Eating Out
+12 Oct 25,2025-10-12,Just Eat,Just Eat,DEB,,11.64,-3405.69,OUT,Food Delivery
+12 Oct 25,2025-10-12,Starbucks,Starbucks,DEB,,5.01,-3410.7,OUT,Coffee & Cafe
+13 Oct 25,2025-10-13,Tesco,Tesco,DEB,,61.95,-3472.65,OUT,Groceries
+13 Oct 25,2025-10-13,Nandos,Nandos,DEB,,10.79,-3483.44,OUT,Eating Out
+13 Oct 25,2025-10-13,Deliveroo,Deliveroo,DEB,,26.05,-3509.49,OUT,Food Delivery
+13 Oct 25,2025-10-13,Starbucks,Starbucks,DEB,,4.24,-3513.73,OUT,Coffee & Cafe
+14 Oct 25,2025-10-14,McDonalds,McDonalds,DEB,,8.92,-3522.65,OUT,Eating Out
+15 Oct 25,2025-10-15,Sainsburys,Sainsburys,DEB,,44.07,-3566.72,OUT,Groceries
+15 Oct 25,2025-10-15,TfL,TfL,DEB,,5.82,-3572.54,OUT,Transport
+15 Oct 25,2025-10-15,Primark,Primark,DEB,,14.26,-3586.8,OUT,Shopping
+15 Oct 25,2025-10-15,Boots,Boots,DEB,,6.42,-3593.22,OUT,Shopping
+16 Oct 25,2025-10-16,TfL,TfL,DEB,,4.33,-3597.55,OUT,Transport
+16 Oct 25,2025-10-16,McDonalds,McDonalds,DEB,,6.43,-3603.98,OUT,Eating Out
+16 Oct 25,2025-10-16,Just Eat,Just Eat,DEB,,23.39,-3627.37,OUT,Food Delivery
+16 Oct 25,2025-10-16,Starbucks,Starbucks,DEB,,4.9,-3632.27,OUT,Coffee & Cafe
+17 Oct 25,2025-10-17,TfL,TfL,DEB,,3.53,-3635.8,OUT,Transport
+17 Oct 25,2025-10-17,Greggs,Greggs,DEB,,7.59,-3643.39,OUT,Eating Out
+17 Oct 25,2025-10-17,Starbucks,Starbucks,DEB,,3.2,-3646.59,OUT,Coffee & Cafe
+18 Oct 25,2025-10-18,Deliveroo,Deliveroo,DEB,,32.37,-3678.96,OUT,Food Delivery
+18 Oct 25,2025-10-18,Amazon,Amazon,DEB,,29.38,-3708.34,OUT,Shopping
+18 Oct 25,2025-10-18,ASOS,ASOS,DEB,,48.6,-3756.94,OUT,Shopping
+19 Oct 25,2025-10-19,Deliveroo,Deliveroo,DEB,,27.78,-3784.72,OUT,Food Delivery
+19 Oct 25,2025-10-19,Uber Eats,Uber Eats,DEB,,24.34,-3809.06,OUT,Food Delivery
+19 Oct 25,2025-10-19,Just Eat,Just Eat,DEB,,11.32,-3820.38,OUT,Food Delivery
+20 Oct 25,2025-10-20,Lidl,Lidl,DEB,,37.48,-3857.86,OUT,Groceries
+20 Oct 25,2025-10-20,TfL,TfL,DEB,,6.72,-3864.58,OUT,Transport
+21 Oct 25,2025-10-21,Aldi,Aldi,DEB,,18.4,-3882.98,OUT,Groceries
+21 Oct 25,2025-10-21,Deliveroo,Deliveroo,DEB,,27.43,-3910.41,OUT,Food Delivery
+21 Oct 25,2025-10-21,Just Eat,Just Eat,DEB,,23.52,-3933.93,OUT,Food Delivery
+22 Oct 25,2025-10-22,TfL,TfL,DEB,,5.39,-3939.32,OUT,Transport
+22 Oct 25,2025-10-22,Nandos,Nandos,DEB,,12.18,-3951.5,OUT,Eating Out
+23 Oct 25,2025-10-23,TfL,TfL,DEB,,3.56,-3955.06,OUT,Transport
+23 Oct 25,2025-10-23,Amazon,Amazon,DEB,,39.57,-3994.63,OUT,Shopping
+23 Oct 25,2025-10-23,Primark,Primark,DEB,,19.56,-4014.19,OUT,Shopping
+24 Oct 25,2025-10-24,Tesco,Tesco,DEB,,24.83,-4039.02,OUT,Groceries
+24 Oct 25,2025-10-24,Nandos,Nandos,DEB,,19.02,-4058.04,OUT,Eating Out
+24 Oct 25,2025-10-24,McDonalds,McDonalds,DEB,,11.72,-4069.76,OUT,Eating Out
+24 Oct 25,2025-10-24,Starbucks,Starbucks,DEB,,3.75,-4073.51,OUT,Coffee & Cafe
+25 Oct 25,2025-10-25,Tesco,Tesco,DEB,,10.78,-4084.29,OUT,Groceries
+25 Oct 25,2025-10-25,TfL,TfL,DEB,,6.3,-4090.59,OUT,Transport
+25 Oct 25,2025-10-25,Uber,Uber,DEB,,9.61,-4100.2,OUT,Transport
+25 Oct 25,2025-10-25,Uber Eats,Uber Eats,DEB,,10.86,-4111.06,OUT,Food Delivery
+25 Oct 25,2025-10-25,Starbucks,Starbucks,DEB,,3.77,-4114.83,OUT,Coffee & Cafe
+26 Oct 25,2025-10-26,TfL,TfL,DEB,,5.96,-4120.79,OUT,Transport
+26 Oct 25,2025-10-26,Deliveroo,Deliveroo,DEB,,16.65,-4137.44,OUT,Food Delivery
+26 Oct 25,2025-10-26,Costa Coffee,Costa Coffee,DEB,,4.57,-4142.01,OUT,Coffee & Cafe
+27 Oct 25,2025-10-27,Sainsburys,Sainsburys,DEB,,34.14,-4176.15,OUT,Groceries
+27 Oct 25,2025-10-27,Greggs,Greggs,DEB,,2.8,-4178.95,OUT,Eating Out
+28 Oct 25,2025-10-28,Tesco,Tesco,DEB,,69.12,-4248.07,OUT,Groceries
+29 Oct 25,2025-10-29,TfL,TfL,DEB,,3.58,-4251.65,OUT,Transport
+29 Oct 25,2025-10-29,Uber Eats,Uber Eats,DEB,,25.47,-4277.12,OUT,Food Delivery
+29 Oct 25,2025-10-29,Primark,Primark,DEB,,44.02,-4321.14,OUT,Shopping
+29 Oct 25,2025-10-29,Starbucks,Starbucks,DEB,,5.35,-4326.49,OUT,Coffee & Cafe
+30 Oct 25,2025-10-30,Lidl,Lidl,DEB,,29.63,-4356.12,OUT,Groceries
+30 Oct 25,2025-10-30,Amazon,Amazon,DEB,,21.63,-4377.75,OUT,Shopping
+30 Oct 25,2025-10-30,Costa Coffee,Costa Coffee,DEB,,4.03,-4381.78,OUT,Coffee & Cafe
+01 Nov 25,2025-11-01,TfL,TfL,DEB,,2.47,-4384.25,OUT,Transport
+01 Nov 25,2025-11-01,Shell Fuel,Shell Fuel,DEB,,64.28,-4448.53,OUT,Transport
+02 Nov 25,2025-11-02,Amazon Prime,Amazon Prime,DEB,,8.99,-4457.52,OUT,Subscriptions
+02 Nov 25,2025-11-02,Aldi,Aldi,DEB,,18.43,-4475.95,OUT,Groceries
+02 Nov 25,2025-11-02,TfL,TfL,DEB,,5.68,-4481.63,OUT,Transport
+03 Nov 25,2025-11-03,Tesco,Tesco,DEB,,42.47,-4524.1,OUT,Groceries
+03 Nov 25,2025-11-03,ATM Withdrawal,ATM Withdrawal,DEB,,29.7,-4553.8,OUT,Cash
+04 Nov 25,2025-11-04,iCloud Storage,iCloud Storage,DEB,,2.54,-4556.34,OUT,Subscriptions
+04 Nov 25,2025-11-04,Sainsburys,Sainsburys,DEB,,38.75,-4595.09,OUT,Groceries
+05 Nov 25,2025-11-05,Tesco,Tesco,DEB,,12.73,-4607.82,OUT,Groceries
+05 Nov 25,2025-11-05,Sainsburys,Sainsburys,DEB,,53.33,-4661.15,OUT,Groceries
+05 Nov 25,2025-11-05,Lidl,Lidl,DEB,,18.9,-4680.05,OUT,Groceries
+05 Nov 25,2025-11-05,Uber,Uber,DEB,,10.25,-4690.3,OUT,Transport
+05 Nov 25,2025-11-05,Amazon,Amazon,DEB,,68.04,-4758.34,OUT,Shopping
+06 Nov 25,2025-11-06,TfL,TfL,DEB,,2.54,-4760.88,OUT,Transport
+06 Nov 25,2025-11-06,Nandos,Nandos,DEB,,16.9,-4777.78,OUT,Eating Out
+06 Nov 25,2025-11-06,Greggs,Greggs,DEB,,3.72,-4781.5,OUT,Eating Out
+07 Nov 25,2025-11-07,Greggs,Greggs,DEB,,2.82,-4784.32,OUT,Eating Out
+07 Nov 25,2025-11-07,Starbucks,Starbucks,DEB,,5.92,-4790.24,OUT,Coffee & Cafe
+08 Nov 25,2025-11-08,Nandos,Nandos,DEB,,21.19,-4811.43,OUT,Eating Out
+08 Nov 25,2025-11-08,McDonalds,McDonalds,DEB,,7.23,-4818.66,OUT,Eating Out
+08 Nov 25,2025-11-08,Greggs,Greggs,DEB,,7.05,-4825.71,OUT,Eating Out
+08 Nov 25,2025-11-08,Starbucks,Starbucks,DEB,,4.38,-4830.09,OUT,Coffee & Cafe
+09 Nov 25,2025-11-09,Tesco,Tesco,DEB,,52.89,-4882.98,OUT,Groceries
+09 Nov 25,2025-11-09,TfL,TfL,DEB,,2.68,-4885.66,OUT,Transport
+09 Nov 25,2025-11-09,McDonalds,McDonalds,DEB,,10.1,-4895.76,OUT,Eating Out
+09 Nov 25,2025-11-09,Greggs,Greggs,DEB,,2.25,-4898.01,OUT,Eating Out
+09 Nov 25,2025-11-09,Amazon,Amazon,DEB,,19.98,-4917.99,OUT,Shopping
+09 Nov 25,2025-11-09,ATM Withdrawal,ATM Withdrawal,DEB,,71.57,-4989.56,OUT,Cash
+10 Nov 25,2025-11-10,Aldi,Aldi,DEB,,45.95,-5035.51,OUT,Groceries
+10 Nov 25,2025-11-10,TfL,TfL,DEB,,3.77,-5039.28,OUT,Transport
+10 Nov 25,2025-11-10,Starbucks,Starbucks,DEB,,4.91,-5044.19,OUT,Coffee & Cafe
+11 Nov 25,2025-11-11,TfL,TfL,DEB,,5.85,-5050.04,OUT,Transport
+11 Nov 25,2025-11-11,Uber,Uber,DEB,,15.46,-5065.5,OUT,Transport
+11 Nov 25,2025-11-11,Deliveroo,Deliveroo,DEB,,25.13,-5090.63,OUT,Food Delivery
+11 Nov 25,2025-11-11,Costa Coffee,Costa Coffee,DEB,,4.86,-5095.49,OUT,Coffee & Cafe
+12 Nov 25,2025-11-12,Tesco,Tesco,DEB,,8.05,-5103.54,OUT,Groceries
+12 Nov 25,2025-11-12,Sainsburys,Sainsburys,DEB,,21.71,-5125.25,OUT,Groceries
+12 Nov 25,2025-11-12,TfL,TfL,DEB,,6.35,-5131.6,OUT,Transport
+12 Nov 25,2025-11-12,Greggs,Greggs,DEB,,6.5,-5138.1,OUT,Eating Out
+12 Nov 25,2025-11-12,Deliveroo,Deliveroo,DEB,,26.69,-5164.79,OUT,Food Delivery
+13 Nov 25,2025-11-13,Tesco,Tesco,DEB,,45.92,-5210.71,OUT,Groceries
+13 Nov 25,2025-11-13,TfL,TfL,DEB,,4.71,-5215.42,OUT,Transport
+13 Nov 25,2025-11-13,Trainline,Trainline,DEB,,12.43,-5227.85,OUT,Transport
+13 Nov 25,2025-11-13,Nandos,Nandos,DEB,,10.3,-5238.15,OUT,Eating Out
+13 Nov 25,2025-11-13,Greggs,Greggs,DEB,,7.91,-5246.06,OUT,Eating Out
+13 Nov 25,2025-11-13,Costa Coffee,Costa Coffee,DEB,,3.92,-5249.98,OUT,Coffee & Cafe
+14 Nov 25,2025-11-14,Aldi,Aldi,DEB,,22.99,-5272.97,OUT,Groceries
+14 Nov 25,2025-11-14,TfL,TfL,DEB,,7.39,-5280.36,OUT,Transport
+14 Nov 25,2025-11-14,Shell Fuel,Shell Fuel,DEB,,55.69,-5336.05,OUT,Transport
+14 Nov 25,2025-11-14,Nandos,Nandos,DEB,,21.74,-5357.79,OUT,Eating Out
+15 Nov 25,2025-11-15,Aldi,Aldi,DEB,,39.26,-5397.05,OUT,Groceries
+15 Nov 25,2025-11-15,TfL,TfL,DEB,,5.57,-5402.62,OUT,Transport
+15 Nov 25,2025-11-15,McDonalds,McDonalds,DEB,,3.74,-5406.36,OUT,Eating Out
+15 Nov 25,2025-11-15,Uber Eats,Uber Eats,DEB,,20.04,-5426.4,OUT,Food Delivery
+15 Nov 25,2025-11-15,Amazon,Amazon,DEB,,17.81,-5444.21,OUT,Shopping
+15 Nov 25,2025-11-15,Starbucks,Starbucks,DEB,,4.85,-5449.06,OUT,Coffee & Cafe
+16 Nov 25,2025-11-16,Lidl,Lidl,DEB,,15.67,-5464.73,OUT,Groceries
+16 Nov 25,2025-11-16,McDonalds,McDonalds,DEB,,10.36,-5475.09,OUT,Eating Out
+16 Nov 25,2025-11-16,Greggs,Greggs,DEB,,4.24,-5479.33,OUT,Eating Out
+16 Nov 25,2025-11-16,Just Eat,Just Eat,DEB,,27.08,-5506.41,OUT,Food Delivery
+16 Nov 25,2025-11-16,Boots,Boots,DEB,,22.34,-5528.75,OUT,Shopping
+16 Nov 25,2025-11-16,Starbucks,Starbucks,DEB,,4.35,-5533.1,OUT,Coffee & Cafe
+16 Nov 25,2025-11-16,Costa Coffee,Costa Coffee,DEB,,3.42,-5536.52,OUT,Coffee & Cafe
+17 Nov 25,2025-11-17,Aldi,Aldi,DEB,,16.81,-5553.33,OUT,Groceries
+17 Nov 25,2025-11-17,Trainline,Trainline,DEB,,55.83,-5609.16,OUT,Transport
+17 Nov 25,2025-11-17,Shell Fuel,Shell Fuel,DEB,,45.55,-5654.71,OUT,Transport
+17 Nov 25,2025-11-17,Deliveroo,Deliveroo,DEB,,31.95,-5686.66,OUT,Food Delivery
+18 Nov 25,2025-11-18,Sainsburys,Sainsburys,DEB,,42.64,-5729.3,OUT,Groceries
+18 Nov 25,2025-11-18,Shell Fuel,Shell Fuel,DEB,,40.31,-5769.61,OUT,Transport
+19 Nov 25,2025-11-19,Tesco,Tesco,DEB,,53.94,-5823.55,OUT,Groceries
+19 Nov 25,2025-11-19,TfL,TfL,DEB,,6.13,-5829.68,OUT,Transport
+19 Nov 25,2025-11-19,Uber Eats,Uber Eats,DEB,,20.66,-5850.34,OUT,Food Delivery
+19 Nov 25,2025-11-19,Boots,Boots,DEB,,12.97,-5863.31,OUT,Shopping
+20 Nov 25,2025-11-20,TfL,TfL,DEB,,2.48,-5865.79,OUT,Transport
+20 Nov 25,2025-11-20,Greggs,Greggs,DEB,,4.32,-5870.11,OUT,Eating Out
+21 Nov 25,2025-11-21,McDonalds,McDonalds,DEB,,3.98,-5874.09,OUT,Eating Out
+22 Nov 25,2025-11-22,Aldi,Aldi,DEB,,30.03,-5904.12,OUT,Groceries
+22 Nov 25,2025-11-22,TfL,TfL,DEB,,7.37,-5911.49,OUT,Transport
+22 Nov 25,2025-11-22,Nandos,Nandos,DEB,,15.71,-5927.2,OUT,Eating Out
+22 Nov 25,2025-11-22,Deliveroo,Deliveroo,DEB,,19.45,-5946.65,OUT,Food Delivery
+22 Nov 25,2025-11-22,Costa Coffee,Costa Coffee,DEB,,4.41,-5951.06,OUT,Coffee & Cafe
+23 Nov 25,2025-11-23,TfL,TfL,DEB,,6.61,-5957.67,OUT,Transport
+23 Nov 25,2025-11-23,Amazon,Amazon,DEB,,88.86,-6046.53,OUT,Shopping
+23 Nov 25,2025-11-23,Costa Coffee,Costa Coffee,DEB,,4.2,-6050.73,OUT,Coffee & Cafe
+24 Nov 25,2025-11-24,Tesco,Tesco,DEB,,7.43,-6058.16,OUT,Groceries
+24 Nov 25,2025-11-24,TfL,TfL,DEB,,2.65,-6060.81,OUT,Transport
+24 Nov 25,2025-11-24,Amazon,Amazon,DEB,,78.01,-6138.82,OUT,Shopping
+24 Nov 25,2025-11-24,ATM Withdrawal,ATM Withdrawal,DEB,,57.67,-6196.49,OUT,Cash
+25 Nov 25,2025-11-25,Employer Salary,Employer Salary,FPI,2980.85,,-3215.64,IN,Income
+25 Nov 25,2025-11-25,Side Gig Payment,Side Gig Payment,FPI,181.76,,-3033.88,IN,Income
+25 Nov 25,2025-11-25,TfL,TfL,DEB,,5.65,-3039.53,OUT,Transport
+25 Nov 25,2025-11-25,McDonalds,McDonalds,DEB,,8.06,-3047.59,OUT,Eating Out
+25 Nov 25,2025-11-25,ASOS,ASOS,DEB,,16.56,-3064.15,OUT,Shopping
+25 Nov 25,2025-11-25,Starbucks,Starbucks,DEB,,5.54,-3069.69,OUT,Coffee & Cafe
+26 Nov 25,2025-11-26,TfL,TfL,DEB,,6.12,-3075.81,OUT,Transport
+26 Nov 25,2025-11-26,Nandos,Nandos,DEB,,10.99,-3086.8,OUT,Eating Out
+27 Nov 25,2025-11-27,Trainline,Trainline,DEB,,78.85,-3165.65,OUT,Transport
+27 Nov 25,2025-11-27,Primark,Primark,DEB,,26.55,-3192.2,OUT,Shopping
+28 Nov 25,2025-11-28,Aldi,Aldi,DEB,,23.6,-3215.8,OUT,Groceries
+28 Nov 25,2025-11-28,Uber Eats,Uber Eats,DEB,,17.75,-3233.55,OUT,Food Delivery
+28 Nov 25,2025-11-28,Amazon,Amazon,DEB,,34.54,-3268.09,OUT,Shopping
+29 Nov 25,2025-11-29,TfL,TfL,DEB,,2.69,-3270.78,OUT,Transport
+29 Nov 25,2025-11-29,Boots,Boots,DEB,,5.72,-3276.5,OUT,Shopping
+29 Nov 25,2025-11-29,Costa Coffee,Costa Coffee,DEB,,3.77,-3280.27,OUT,Coffee & Cafe
+01 Dec 25,2025-12-01,British Gas,British Gas,DEB,,45.23,-3325.5,OUT,Bills
+01 Dec 25,2025-12-01,Thames Water,Thames Water,DEB,,33.79,-3359.29,OUT,Bills
+01 Dec 25,2025-12-01,TfL,TfL,DEB,,5.34,-3364.63,OUT,Transport
+01 Dec 25,2025-12-01,Uber,Uber,DEB,,11.04,-3375.67,OUT,Transport
+01 Dec 25,2025-12-01,Greggs,Greggs,DEB,,4.89,-3380.56,OUT,Eating Out
+01 Dec 25,2025-12-01,Starbucks,Starbucks,DEB,,5.01,-3385.57,OUT,Coffee & Cafe
+02 Dec 25,2025-12-02,iCloud Storage,iCloud Storage,DEB,,1.61,-3387.18,OUT,Subscriptions
+02 Dec 25,2025-12-02,Shell Fuel,Shell Fuel,DEB,,38.7,-3425.88,OUT,Transport
+03 Dec 25,2025-12-03,Council Tax,Council Tax,DEB,,199.03,-3624.91,OUT,Bills
+03 Dec 25,2025-12-03,iCloud Storage,iCloud Storage,DEB,,1.11,-3626.02,OUT,Subscriptions
+03 Dec 25,2025-12-03,Aldi,Aldi,DEB,,32.4,-3658.42,OUT,Groceries
+03 Dec 25,2025-12-03,TfL,TfL,DEB,,3.69,-3662.11,OUT,Transport
+03 Dec 25,2025-12-03,Uber,Uber,DEB,,13.63,-3675.74,OUT,Transport
+03 Dec 25,2025-12-03,Costa Coffee,Costa Coffee,DEB,,3.02,-3678.76,OUT,Coffee & Cafe
+04 Dec 25,2025-12-04,Landlord Payment,Landlord Payment,DEB,,994.76,-4673.52,OUT,Rent
+04 Dec 25,2025-12-04,Netflix,Netflix,DEB,,17.01,-4690.53,OUT,Subscriptions
+04 Dec 25,2025-12-04,Amazon Prime,Amazon Prime,DEB,,8.99,-4699.52,OUT,Subscriptions
+04 Dec 25,2025-12-04,Gym Membership,Gym Membership,DEB,,32.74,-4732.26,OUT,Subscriptions
+04 Dec 25,2025-12-04,TfL,TfL,DEB,,4.99,-4737.25,OUT,Transport
+04 Dec 25,2025-12-04,Greggs,Greggs,DEB,,2.23,-4739.48,OUT,Eating Out
+04 Dec 25,2025-12-04,Amazon,Amazon,DEB,,74.37,-4813.85,OUT,Shopping
+05 Dec 25,2025-12-05,Thames Water,Thames Water,DEB,,44.95,-4858.8,OUT,Bills
+05 Dec 25,2025-12-05,Spotify,Spotify,DEB,,10.99,-4869.79,OUT,Subscriptions
+05 Dec 25,2025-12-05,Gym Membership,Gym Membership,DEB,,39.46,-4909.25,OUT,Subscriptions
+05 Dec 25,2025-12-05,TfL,TfL,DEB,,7.87,-4917.12,OUT,Transport
+05 Dec 25,2025-12-05,Boots,Boots,DEB,,17.12,-4934.24,OUT,Shopping
+05 Dec 25,2025-12-05,Starbucks,Starbucks,DEB,,3.23,-4937.47,OUT,Coffee & Cafe
+06 Dec 25,2025-12-06,TfL,TfL,DEB,,5.16,-4942.63,OUT,Transport
+06 Dec 25,2025-12-06,Uber,Uber,DEB,,24.68,-4967.31,OUT,Transport
+06 Dec 25,2025-12-06,Boots,Boots,DEB,,11.61,-4978.92,OUT,Shopping
+06 Dec 25,2025-12-06,Costa Coffee,Costa Coffee,DEB,,3.93,-4982.85,OUT,Coffee & Cafe
+07 Dec 25,2025-12-07,Tesco,Tesco,DEB,,74.54,-5057.39,OUT,Groceries
+07 Dec 25,2025-12-07,Uber,Uber,DEB,,23.35,-5080.74,OUT,Transport
+07 Dec 25,2025-12-07,Uber Eats,Uber Eats,DEB,,23.09,-5103.83,OUT,Food Delivery
+07 Dec 25,2025-12-07,Starbucks,Starbucks,DEB,,4.01,-5107.84,OUT,Coffee & Cafe
+08 Dec 25,2025-12-08,Tesco,Tesco,DEB,,26.25,-5134.09,OUT,Groceries
+08 Dec 25,2025-12-08,Aldi,Aldi,DEB,,13.68,-5147.77,OUT,Groceries
+08 Dec 25,2025-12-08,TfL,TfL,DEB,,7.01,-5154.78,OUT,Transport
+08 Dec 25,2025-12-08,Greggs,Greggs,DEB,,5.94,-5160.72,OUT,Eating Out
+09 Dec 25,2025-12-09,TfL,TfL,DEB,,7.88,-5168.6,OUT,Transport
+09 Dec 25,2025-12-09,Deliveroo,Deliveroo,DEB,,22.16,-5190.76,OUT,Food Delivery
+09 Dec 25,2025-12-09,Just Eat,Just Eat,DEB,,11.27,-5202.03,OUT,Food Delivery
+09 Dec 25,2025-12-09,ASOS,ASOS,DEB,,47.35,-5249.38,OUT,Shopping
+09 Dec 25,2025-12-09,Starbucks,Starbucks,DEB,,3.11,-5252.49,OUT,Coffee & Cafe
+10 Dec 25,2025-12-10,Sainsburys,Sainsburys,DEB,,57.48,-5309.97,OUT,Groceries
+10 Dec 25,2025-12-10,TfL,TfL,DEB,,7.61,-5317.58,OUT,Transport
+10 Dec 25,2025-12-10,Greggs,Greggs,DEB,,5.21,-5322.79,OUT,Eating Out
+10 Dec 25,2025-12-10,Deliveroo,Deliveroo,DEB,,22.57,-5345.36,OUT,Food Delivery
+11 Dec 25,2025-12-11,Tesco,Tesco,DEB,,34.16,-5379.52,OUT,Groceries
+11 Dec 25,2025-12-11,Shell Fuel,Shell Fuel,DEB,,43.57,-5423.09,OUT,Transport
+11 Dec 25,2025-12-11,Starbucks,Starbucks,DEB,,5.21,-5428.3,OUT,Coffee & Cafe
+11 Dec 25,2025-12-11,ATM Withdrawal,ATM Withdrawal,DEB,,92.57,-5520.87,OUT,Cash
+12 Dec 25,2025-12-12,Tesco,Tesco,DEB,,49.33,-5570.2,OUT,Groceries
+12 Dec 25,2025-12-12,Aldi,Aldi,DEB,,29.89,-5600.09,OUT,Groceries
+12 Dec 25,2025-12-12,TfL,TfL,DEB,,6.83,-5606.92,OUT,Transport
+12 Dec 25,2025-12-12,Starbucks,Starbucks,DEB,,4.25,-5611.17,OUT,Coffee & Cafe
+13 Dec 25,2025-12-13,Sainsburys,Sainsburys,DEB,,5.4,-5616.57,OUT,Groceries
+13 Dec 25,2025-12-13,TfL,TfL,DEB,,3.7,-5620.27,OUT,Transport
+14 Dec 25,2025-12-14,Lidl,Lidl,DEB,,8.94,-5629.21,OUT,Groceries
+14 Dec 25,2025-12-14,TfL,TfL,DEB,,7.06,-5636.27,OUT,Transport
+14 Dec 25,2025-12-14,McDonalds,McDonalds,DEB,,6.28,-5642.55,OUT,Eating Out
+14 Dec 25,2025-12-14,Amazon,Amazon,DEB,,9.98,-5652.53,OUT,Shopping
+14 Dec 25,2025-12-14,Boots,Boots,DEB,,17.87,-5670.4,OUT,Shopping
+14 Dec 25,2025-12-14,Starbucks,Starbucks,DEB,,3.71,-5674.11,OUT,Coffee & Cafe
+15 Dec 25,2025-12-15,TfL,TfL,DEB,,7.34,-5681.45,OUT,Transport
+15 Dec 25,2025-12-15,Uber,Uber,DEB,,23.56,-5705.01,OUT,Transport
+15 Dec 25,2025-12-15,Amazon,Amazon,DEB,,17.97,-5722.98,OUT,Shopping
+16 Dec 25,2025-12-16,Aldi,Aldi,DEB,,27.12,-5750.1,OUT,Groceries
+16 Dec 25,2025-12-16,TfL,TfL,DEB,,4.61,-5754.71,OUT,Transport
+16 Dec 25,2025-12-16,Starbucks,Starbucks,DEB,,4.49,-5759.2,OUT,Coffee & Cafe
+16 Dec 25,2025-12-16,Costa Coffee,Costa Coffee,DEB,,4.51,-5763.71,OUT,Coffee & Cafe
+17 Dec 25,2025-12-17,Tesco,Tesco,DEB,,39.45,-5803.16,OUT,Groceries
+17 Dec 25,2025-12-17,TfL,TfL,DEB,,2.83,-5805.99,OUT,Transport
+17 Dec 25,2025-12-17,Greggs,Greggs,DEB,,5.76,-5811.75,OUT,Eating Out
+17 Dec 25,2025-12-17,Starbucks,Starbucks,DEB,,5.05,-5816.8,OUT,Coffee & Cafe
+18 Dec 25,2025-12-18,Lidl,Lidl,DEB,,29.83,-5846.63,OUT,Groceries
+18 Dec 25,2025-12-18,TfL,TfL,DEB,,7.89,-5854.52,OUT,Transport
+18 Dec 25,2025-12-18,Boots,Boots,DEB,,13.63,-5868.15,OUT,Shopping
+19 Dec 25,2025-12-19,TfL,TfL,DEB,,6.18,-5874.33,OUT,Transport
+19 Dec 25,2025-12-19,Deliveroo,Deliveroo,DEB,,19.97,-5894.3,OUT,Food Delivery
+20 Dec 25,2025-12-20,Tesco,Tesco,DEB,,64.2,-5958.5,OUT,Groceries
+20 Dec 25,2025-12-20,Trainline,Trainline,DEB,,34.72,-5993.22,OUT,Transport
+20 Dec 25,2025-12-20,Boots,Boots,DEB,,12.92,-6006.14,OUT,Shopping
+20 Dec 25,2025-12-20,Starbucks,Starbucks,DEB,,3.78,-6009.92,OUT,Coffee & Cafe
+21 Dec 25,2025-12-21,Tesco,Tesco,DEB,,6.87,-6016.79,OUT,Groceries
+21 Dec 25,2025-12-21,Uber,Uber,DEB,,24.4,-6041.19,OUT,Transport
+21 Dec 25,2025-12-21,Starbucks,Starbucks,DEB,,4.44,-6045.63,OUT,Coffee & Cafe
+21 Dec 25,2025-12-21,Costa Coffee,Costa Coffee,DEB,,4.36,-6049.99,OUT,Coffee & Cafe
+22 Dec 25,2025-12-22,TfL,TfL,DEB,,2.14,-6052.13,OUT,Transport
+22 Dec 25,2025-12-22,Greggs,Greggs,DEB,,3.91,-6056.04,OUT,Eating Out
+23 Dec 25,2025-12-23,Aldi,Aldi,DEB,,22.13,-6078.17,OUT,Groceries
+23 Dec 25,2025-12-23,TfL,TfL,DEB,,4.01,-6082.18,OUT,Transport
+23 Dec 25,2025-12-23,Nandos,Nandos,DEB,,18.86,-6101.04,OUT,Eating Out
+23 Dec 25,2025-12-23,Greggs,Greggs,DEB,,4.77,-6105.81,OUT,Eating Out
+24 Dec 25,2025-12-24,Tesco,Tesco,DEB,,73.01,-6178.82,OUT,Groceries
+24 Dec 25,2025-12-24,Aldi,Aldi,DEB,,40.59,-6219.41,OUT,Groceries
+24 Dec 25,2025-12-24,Amazon,Amazon,DEB,,29.66,-6249.07,OUT,Shopping
+24 Dec 25,2025-12-24,ATM Withdrawal,ATM Withdrawal,DEB,,48.89,-6297.96,OUT,Cash
+26 Dec 25,2025-12-26,TfL,TfL,DEB,,7.82,-6305.78,OUT,Transport
+26 Dec 25,2025-12-26,Uber,Uber,DEB,,11.09,-6316.87,OUT,Transport
+26 Dec 25,2025-12-26,ASOS,ASOS,DEB,,46.48,-6363.35,OUT,Shopping
+26 Dec 25,2025-12-26,Starbucks,Starbucks,DEB,,3.1,-6366.45,OUT,Coffee & Cafe
+27 Dec 25,2025-12-27,Tesco,Tesco,DEB,,72.59,-6439.04,OUT,Groceries
+27 Dec 25,2025-12-27,Lidl,Lidl,DEB,,34.61,-6473.65,OUT,Groceries
+27 Dec 25,2025-12-27,Deliveroo,Deliveroo,DEB,,25.3,-6498.95,OUT,Food Delivery
+27 Dec 25,2025-12-27,Uber Eats,Uber Eats,DEB,,14.34,-6513.29,OUT,Food Delivery
+27 Dec 25,2025-12-27,Starbucks,Starbucks,DEB,,3.64,-6516.93,OUT,Coffee & Cafe

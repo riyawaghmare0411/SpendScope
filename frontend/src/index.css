@@ -1,0 +1,10 @@
+@import "tailwindcss";
+```
+
+Save with **Ctrl + S**.
+
+**Step 3: Copy your data into the frontend.**
+
+The React app needs access to the transaction data. In your second terminal (the one not running the dev server), type:
+```
+copy ..\data\processed\transactions_frontend.json public\demo_data.json

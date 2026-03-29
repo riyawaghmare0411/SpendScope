@@ -1,0 +1,20 @@
+{
+  "bank_name": "State Bank of India",
+  "country": "IN",
+  "header_patterns": [
+    "txn date,value date,description,ref no./cheque no.,debit,credit,balance"
+  ],
+  "filename_patterns": ["sbi", "state_bank"],
+  "columns": {
+    "date": "Txn Date",
+    "description": "Description",
+    "money_in": "Credit",
+    "money_out": "Debit",
+    "balance": "Balance"
+  },
+  "date_format": "%d %b %Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

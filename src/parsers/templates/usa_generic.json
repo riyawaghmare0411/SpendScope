@@ -1,0 +1,22 @@
+{
+  "bank_name": "US Generic",
+  "country": "US",
+  "header_patterns": [
+    "transaction_id,account_number,transaction_date,transaction_amount,merchant_name,transaction_type,category"
+  ],
+  "filename_patterns": ["banking_transactions_usa", "usa_generic"],
+  "columns": {
+    "date": "Transaction_Date",
+    "description": "Transaction_Description",
+    "merchant": "Merchant_Name",
+    "category": "Category",
+    "type": "Transaction_Type",
+    "amount": "Transaction_Amount",
+    "balance": "Account_Balance"
+  },
+  "date_format": "%Y-%m-%d %H:%M:%S",
+  "amount_mode": "single_absolute",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

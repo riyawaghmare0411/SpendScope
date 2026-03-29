@@ -1,0 +1,20 @@
+{
+  "bank_name": "Citi",
+  "country": "US",
+  "header_patterns": [
+    "status,date,description,debit,credit"
+  ],
+  "filename_patterns": ["citi", "citibank"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "type": "Status",
+    "money_in": "Credit",
+    "money_out": "Debit"
+  },
+  "date_format": "%m/%d/%Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

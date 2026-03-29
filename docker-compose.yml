@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: spendscope_db
+    environment:
+      POSTGRES_USER: spendscope
+      POSTGRES_PASSWORD: spendscope_dev
+      POSTGRES_DB: spendscope
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spendscope"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

@@ -1,0 +1,20 @@
+{
+  "bank_name": "Capital One",
+  "country": "US",
+  "header_patterns": [
+    "transaction date,posted date,card no.,description,category,debit,credit"
+  ],
+  "filename_patterns": ["capital_one", "capitalone"],
+  "columns": {
+    "date": "Transaction Date",
+    "description": "Description",
+    "category": "Category",
+    "money_in": "Credit",
+    "money_out": "Debit"
+  },
+  "date_format": "%Y-%m-%d",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

@@ -1,0 +1,19 @@
+{
+  "bank_name": "Discover",
+  "country": "US",
+  "header_patterns": [
+    "trans. date,post date,description,amount,category"
+  ],
+  "filename_patterns": ["discover"],
+  "columns": {
+    "date": "Trans. Date",
+    "description": "Description",
+    "category": "Category",
+    "amount": "Amount"
+  },
+  "date_format": "%m/%d/%Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

@@ -1,0 +1,20 @@
+{
+  "bank_name": "Kotak Mahindra Bank",
+  "country": "IN",
+  "header_patterns": [
+    "sl. no.,transaction date,value date,description,chq / ref no.,debit,credit,balance"
+  ],
+  "filename_patterns": ["kotak"],
+  "columns": {
+    "date": "Transaction Date",
+    "description": "Description",
+    "money_in": "Credit",
+    "money_out": "Debit",
+    "balance": "Balance"
+  },
+  "date_format": "%d/%m/%Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

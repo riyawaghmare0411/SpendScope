@@ -3,6 +3,8 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import Papa from 'papaparse'
 import jsPDF from 'jspdf'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+
 // ========== THEMES ==========
 const themes = {
   light: {
@@ -53,6 +55,12 @@ const CURRENCIES = [
 
 const NON_DISCRETIONARY = new Set(['Rent', 'Bills', 'Transfers', 'Income', 'Salary', 'Mortgage', 'Insurance', 'Tax', 'Taxes', 'Utilities'])
 
+const COUNTRIES = [
+  'United States', 'United Kingdom', 'India', 'Georgia', 'Canada', 'Australia',
+  'Germany', 'France', 'Japan', 'China', 'Brazil', 'Mexico', 'Spain', 'Italy',
+  'Netherlands', 'Sweden', 'Switzerland', 'Singapore', 'South Korea', 'Other'
+]
+
 const SAVINGS_TIPS = {
   'Grocery': 'Try store brands and meal planning',
   'Groceries': 'Try store brands and meal planning',
@@ -93,6 +101,23 @@ const categorizeByMerchant = (merchantName) => {
     if (keywords.some(kw => lower.includes(kw))) return cat
   }
   return 'Other'
+}
+
+const categorizeWithRules = (merchant) => {
+  const learned = JSON.parse(localStorage.getItem('spendscope_learned_rules') || '[]')
+  const m = (merchant || '').toLowerCase()
+  for (const rule of learned) {
+    if (m.includes(rule.merchant.toLowerCase())) return rule.category
+  }
+  const bulk = JSON.parse(localStorage.getItem('spendscope_bulk_rules') || '[]')
+  for (const rule of [...bulk].sort((a, b) => (b.priority || 0) - (a.priority || 0))) {
+    const val = rule.match_value.toLowerCase()
+    if (rule.match_type === 'exact' && m === val) return rule.category
+    if (rule.match_type === 'starts_with' && m.startsWith(val)) return rule.category
+    if (rule.match_type === 'contains' && m.includes(val)) return rule.category
+    if (rule.match_type === 'regex') { try { if (new RegExp(val, 'i').test(m)) return rule.category } catch(e) {} }
+  }
+  return categorizeByMerchant(merchant)
 }
 
 const PEER_BENCHMARKS = {
@@ -215,6 +240,7 @@ const NAV = [
   { id: 'transactions', icon: '\u2630', label: 'Transactions' },
   { id: 'calendar', icon: '\uD83D\uDCC5', label: 'Calendar' },
   { id: 'insights', icon: '\uD83D\uDCA1', label: 'Insights' },
+  { id: 'rules', icon: '\u2699', label: 'Rules' },
   { id: 'upload', icon: '\u2B06', label: 'Upload' },
 ]
 
@@ -250,10 +276,75 @@ function App() {
   const [budgets, setBudgets] = useState(() => JSON.parse(localStorage.getItem('spendscope_budgets') || '{}')), [editingBudget, setEditingBudget] = useState(null), [budgetInputVal, setBudgetInputVal] = useState('')
   const [accounts, setAccounts] = useState(() => JSON.parse(localStorage.getItem('spendscope_accounts') || '[]')), [activeAccount, setActiveAccount] = useState('All'), [uploadAccountName, setUploadAccountName] = useState('')
   const [expandedMerchant, setExpandedMerchant] = useState(null), [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [pendingImport, setPendingImport] = useState(null) // {transactions, bankName, filename}
+  const [showColumnMapper, setShowColumnMapper] = useState(null) // {headers, previewRows, file}
+  const [importSelectedRows, setImportSelectedRows] = useState(new Set())
+  const [editingCell, setEditingCell] = useState(null) // {rowIdx, field}
+  const [editingTxnCat, setEditingTxnCat] = useState(null) // {index, currentCat} for inline category edit on Transactions page
+  const [flashedTxnIdx, setFlashedTxnIdx] = useState(null) // index of row to flash green after category save
+  const [rulesVersion, setRulesVersion] = useState(0) // bump to force Rules page re-render
+  const [columnMapping, setColumnMapping] = useState({ date: '', description: '', amount: '', amountIn: '', amountOut: '', balance: '' })
+  const [columnDateFormat, setColumnDateFormat] = useState('auto')
+  const [mapperBankName, setMapperBankName] = useState('')
+  const [mapperSaveTemplate, setMapperSaveTemplate] = useState(false)
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('spendscope_token'))
+  const [authUser, setAuthUser] = useState(() => { const saved = localStorage.getItem('spendscope_user'); return saved ? JSON.parse(saved) : null })
+  const [authPage, setAuthPage] = useState('login')
+  const [authError, setAuthError] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
   const fileInputRef = useRef(null), welcomeInputRef = useRef(null), profileInputRef = useRef(null)
   const t = themes[mode]
 
-  useEffect(() => { fetch('http://127.0.0.1:8000/api/transactions').then(r => r.json()).then(j => { setData(j.map(d => ({ ...d, _account: 'Primary' }))); setLoading(false) }).catch(() => { fetch('/demo_data.json').then(r => r.json()).then(j => { setData(j.map(d => ({ ...d, _account: 'Primary' }))); setLoading(false) }) }) }, [])
+  const authHeaders = () => authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+
+  const handleLogin = async (email, password) => {
+    setAuthLoading(true); setAuthError('')
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.detail || 'Login failed')
+      localStorage.setItem('spendscope_token', data.access_token)
+      localStorage.setItem('spendscope_user', JSON.stringify(data.user))
+      setAuthToken(data.access_token)
+      setAuthUser(data.user)
+      setUserName(data.user.name)
+      setCurrency(data.user.currency === 'USD' ? '$' : data.user.currency === 'GBP' ? '\u00A3' : data.user.currency === 'EUR' ? '\u20AC' : data.user.currency === 'INR' ? '\u20B9' : '$')
+    } catch (e) { setAuthError(e.message) }
+    finally { setAuthLoading(false) }
+  }
+
+  const handleSignup = async (email, password, name, country, curr) => {
+    setAuthLoading(true); setAuthError('')
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/signup`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name, country, currency: curr })
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.detail || 'Signup failed')
+      localStorage.setItem('spendscope_token', data.access_token)
+      localStorage.setItem('spendscope_user', JSON.stringify(data.user))
+      localStorage.setItem('spendscope_name', name)
+      setAuthToken(data.access_token)
+      setAuthUser(data.user)
+      setUserName(name)
+      setShowWelcome(false)
+    } catch (e) { setAuthError(e.message) }
+    finally { setAuthLoading(false) }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('spendscope_token')
+    localStorage.removeItem('spendscope_user')
+    setAuthToken(null)
+    setAuthUser(null)
+    setData([])
+  }
+
+  useEffect(() => { if (!authToken) { setLoading(false); return }; fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() }).then(r => r.json()).then(j => { if (Array.isArray(j)) { setData(j.map(d => ({ ...d, _account: d._account || 'Primary' }))); setLoading(false) } else { setLoading(false) } }).catch(() => { setLoading(false) }) }, [authToken])
   useEffect(() => { localStorage.setItem('spendscope_budgets', JSON.stringify(budgets)) }, [budgets])
   useEffect(() => { localStorage.setItem('spendscope_accounts', JSON.stringify(accounts)) }, [accounts])
 
@@ -275,47 +366,184 @@ function App() {
 
   useEffect(() => { if (uploadStatus?.type === 'success') { const timer = setTimeout(() => setUploadStatus(null), 5000); return () => clearTimeout(timer) } }, [uploadStatus])
 
+  // Extract unique category names for dropdowns
+  const ALL_CATEGORIES = [...new Set(MERCHANT_CATEGORIES.map(([cat]) => cat).concat(['Other', 'Income', 'Salary', 'Cash', 'Coffee & Cafe', 'Entertainment', 'Electronics', 'Healthcare', 'Clothing', 'Fitness', 'Housing', 'Travel', 'Education', 'Utilities', 'Savings', 'Professional', 'Bills', 'Credit', 'Debit']))].sort()
+
   const handleFileUpload = (file) => {
     if (!file) return; const isPDF = file.name.toLowerCase().endsWith('.pdf'); const isCSV = file.name.toLowerCase().endsWith('.csv'); if (!isPDF && !isCSV) { setUploadStatus({ type: 'error', message: 'Please upload a CSV or PDF file.' }); return }
     setUploadStatus({ type: 'loading', message: isPDF ? 'Processing PDF...' : 'Parsing CSV...' })
     if (isPDF) {
       const formData = new FormData(); formData.append('file', file)
-      fetch('http://127.0.0.1:8000/api/upload-pdf', { method: 'POST', body: formData })
+      fetch(`${API_BASE}/api/upload-pdf`, { method: 'POST', body: formData })
         .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
-        .then(transactions => {
-          if (!transactions || transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in PDF.' }); return }
-          const acctName = uploadAccountName.trim() || 'Primary'
-          const taggedData = transactions.map(d => ({ ...d, _account: acctName, category: d.category || categorizeByMerchant(d.merchant || d.description || '') }))
-          setData(prev => [...prev.filter(d => d._account !== acctName), ...taggedData])
-          if (!accounts.find(a => a.name === acctName)) setAccounts(prev => [...prev, { id: Date.now().toString(), name: acctName }])
-          setUploadStatus({ type: 'success', message: `Loaded ${transactions.length} transactions from PDF into "${acctName}".` }); setPage('overview')
+        .then(result => {
+          if (result.status === 'unrecognized') { setUploadStatus({ type: 'error', message: 'Could not recognize this PDF format. Please try uploading a CSV export from your bank instead.' }); return }
+          const transactions = Array.isArray(result.transactions) ? result.transactions : []
+          if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in PDF.' }); return }
+          const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
+          setPendingImport({ transactions: tagged, bankName: result.bank_name || '', filename: file.name })
+          setUploadStatus(null)
         })
         .catch(err => { setUploadStatus({ type: 'error', message: `PDF processing failed: ${err.message}. Make sure the backend is running.` }) })
       return
     }
 
-    Papa.parse(file, { header: true, skipEmptyLines: true,
-      complete: (results) => {
-        if (results.errors.length > 0 && results.data.length === 0) { setUploadStatus({ type: 'error', message: `Parse error: ${results.errors[0].message}` }); return }
-        const headers = results.meta.fields || [], cols = detectColumns(headers)
-        if (!cols.date || (!cols.amount && !cols.amountIn)) { setUploadStatus({ type: 'error', message: `Could not detect date or amount columns. Found: ${headers.join(', ')}` }); return }
-        const colInfo = Object.entries(cols).filter(([,v]) => v).map(([k,v]) => `${k}=${v}`).join(', ')
-        const GENERIC_CODES = new Set(['DEB', 'FPO', 'CPT', 'FPI', 'TFR', 'DD', 'BGC', 'SO', ''])
-        const needsSmartCat = !cols.category || results.data.slice(0, 20).every(row => GENERIC_CODES.has((row[cols.category] || '').trim()))
-        const mapped = results.data.map(row => {
-          const dateISO = parseFlexDate(row[cols.date]), amountOut = parseFloat(row[cols.amount]) || 0, amountIn = cols.amountIn ? (parseFloat(row[cols.amountIn]) || 0) : 0
-          const isIncome = amountIn > 0 && amountOut === 0, merchantName = row[cols.merchant] || 'Unknown'
-          const dir = cols.direction ? ((row[cols.direction] || '').toUpperCase() === 'IN' ? 'IN' : 'OUT') : (isIncome ? 'IN' : 'OUT')
-          return { date_iso: dateISO, description: merchantName, merchant: merchantName, category: needsSmartCat ? categorizeByMerchant(merchantName) : (row[cols.category] || 'Other'), type: 'DEB', money_in: dir === 'IN' ? (amountIn || Math.abs(amountOut)) : 0, money_out: dir === 'OUT' ? (amountOut || Math.abs(amountIn)) : 0, balance: parseFloat(row[cols.balance]) || 0, direction: dir }
-        }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
-        if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found in CSV.' }); return }
-        const acctName = uploadAccountName.trim() || 'Primary', taggedData = mapped.map(d => ({ ...d, _account: acctName }))
-        setData(prev => [...prev.filter(d => d._account !== acctName), ...taggedData])
-        if (!accounts.find(a => a.name === acctName)) setAccounts(prev => [...prev, { id: Date.now().toString(), name: acctName }])
-        setUploadStatus({ type: 'success', message: `Loaded ${mapped.length.toLocaleString()} transactions into "${acctName}". Detected: ${colInfo}` }); setPage('overview')
-      },
-      error: (err) => { setUploadStatus({ type: 'error', message: `Failed to read file: ${err.message}` }) }
+    // CSV: try backend first, fall back to client-side parsing
+    const formData = new FormData(); formData.append('file', file)
+    fetch(`${API_BASE}/api/upload-csv`, { method: 'POST', body: formData })
+      .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
+      .then(result => {
+        if (result.status === 'needs_mapping') {
+          setShowColumnMapper({ headers: result.headers, previewRows: result.preview_rows, file })
+          setColumnMapping({ date: '', description: '', amount: '', amountIn: '', amountOut: '', balance: '' })
+          setMapperBankName(result.bank_name || '')
+          setUploadStatus(null)
+          return
+        }
+        // status === 'parsed'
+        const transactions = result.transactions || []
+        if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in CSV.' }); return }
+        const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
+        setPendingImport({ transactions: tagged, bankName: result.bank_name || '', filename: file.name })
+        setUploadStatus(null)
+      })
+      .catch(() => {
+        // Backend unavailable -- fall back to client-side Papa Parse
+        Papa.parse(file, { header: true, skipEmptyLines: true,
+          complete: (results) => {
+            if (results.errors.length > 0 && results.data.length === 0) { setUploadStatus({ type: 'error', message: `Parse error: ${results.errors[0].message}` }); return }
+            const headers = results.meta.fields || [], cols = detectColumns(headers)
+            if (!cols.date || (!cols.amount && !cols.amountIn)) {
+              // Cannot auto-detect -- show column mapper
+              setShowColumnMapper({ headers, previewRows: results.data.slice(0, 5), file })
+              setColumnMapping({ date: '', description: '', amount: '', amountIn: '', amountOut: '', balance: '' })
+              setUploadStatus(null)
+              return
+            }
+            const GENERIC_CODES = new Set(['DEB', 'FPO', 'CPT', 'FPI', 'TFR', 'DD', 'BGC', 'SO', ''])
+            const needsSmartCat = !cols.category || results.data.slice(0, 20).every(row => GENERIC_CODES.has((row[cols.category] || '').trim()))
+            const mapped = results.data.map(row => {
+              const dateISO = parseFlexDate(row[cols.date]), amountOut = parseFloat(row[cols.amount]) || 0, amountIn = cols.amountIn ? (parseFloat(row[cols.amountIn]) || 0) : 0
+              const isIncome = amountIn > 0 && amountOut === 0, merchantName = row[cols.merchant] || 'Unknown'
+              const dir = cols.direction ? ((row[cols.direction] || '').toUpperCase() === 'IN' ? 'IN' : 'OUT') : (isIncome ? 'IN' : 'OUT')
+              return { date_iso: dateISO, description: merchantName, merchant: merchantName, category: needsSmartCat ? categorizeWithRules(merchantName) : (row[cols.category] || 'Other'), type: 'DEB', money_in: dir === 'IN' ? (amountIn || Math.abs(amountOut)) : 0, money_out: dir === 'OUT' ? (amountOut || Math.abs(amountIn)) : 0, balance: parseFloat(row[cols.balance]) || 0, direction: dir }
+            }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
+            if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found in CSV.' }); return }
+            setPendingImport({ transactions: mapped, bankName: '', filename: file.name })
+            setUploadStatus(null)
+          },
+          error: (err) => { setUploadStatus({ type: 'error', message: `Failed to read file: ${err.message}` }) }
+        })
+      })
+  }
+
+  const handleColumnMapperSubmit = () => {
+    if (!showColumnMapper) return
+    const { file } = showColumnMapper
+    const mapping = { ...columnMapping, date_format: columnDateFormat }
+    // If we have a backend, send mapped data
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mapping', JSON.stringify(mapping))
+    if (mapperSaveTemplate && mapperBankName) formData.append('bank_name', mapperBankName)
+    setUploadStatus({ type: 'loading', message: 'Parsing with custom mapping...' })
+    fetch(`${API_BASE}/api/upload-csv-mapped`, { method: 'POST', body: formData })
+      .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
+      .then(result => {
+        const transactions = result.transactions || []
+        if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found with this mapping.' }); return }
+        const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
+        setPendingImport({ transactions: tagged, bankName: result.bank_name || mapperBankName, filename: file.name })
+        setShowColumnMapper(null)
+        setUploadStatus(null)
+      })
+      .catch(() => {
+        // Fallback: apply mapping client-side
+        Papa.parse(file, { header: true, skipEmptyLines: true,
+          complete: (results) => {
+            const rows = results.data
+            const mapped = rows.map(row => {
+              const dateISO = parseFlexDate(row[mapping.date] || '')
+              const amtOut = parseFloat(row[mapping.amount] || row[mapping.amountOut]) || 0
+              const amtIn = parseFloat(row[mapping.amountIn]) || 0
+              const merchantName = row[mapping.description] || 'Unknown'
+              const isIncome = amtIn > 0 && amtOut === 0
+              const dir = isIncome ? 'IN' : 'OUT'
+              return { date_iso: dateISO, description: merchantName, merchant: merchantName, category: categorizeWithRules(merchantName), type: 'DEB', money_in: dir === 'IN' ? (amtIn || Math.abs(amtOut)) : 0, money_out: dir === 'OUT' ? (amtOut || Math.abs(amtIn)) : 0, balance: parseFloat(row[mapping.balance]) || 0, direction: dir }
+            }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
+            if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found with this mapping.' }); return }
+            setPendingImport({ transactions: mapped, bankName: mapperBankName, filename: file.name })
+            setShowColumnMapper(null)
+            setUploadStatus(null)
+          },
+          error: () => setUploadStatus({ type: 'error', message: 'Failed to parse file with mapping.' })
+        })
+      })
+  }
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) return
+    const acctName = uploadAccountName.trim() || 'Primary'
+    // Remove selected (deleted) rows
+    const kept = pendingImport.transactions.filter((_, i) => !importSelectedRows.has(i))
+    const taggedData = kept.map(d => ({ ...d, _account: acctName }))
+    setData(prev => [...prev.filter(d => d._account !== acctName), ...taggedData])
+    if (!accounts.find(a => a.name === acctName)) setAccounts(prev => [...prev, { id: Date.now().toString(), name: acctName }])
+    setUploadStatus({ type: 'success', message: `Imported ${kept.length.toLocaleString()} transactions into "${acctName}".` })
+    if (authToken) {
+      fetch(`${API_BASE}/api/transactions/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          transactions: kept,
+          bank_name: pendingImport.bankName,
+          filename: pendingImport.filename,
+          account_name: acctName,
+          source_type: pendingImport.filename?.endsWith('.pdf') ? 'pdf' : 'csv',
+        })
+      }).catch(console.error)
+    }
+    setPendingImport(null)
+    setImportSelectedRows(new Set())
+    setEditingCell(null)
+    setPage('overview')
+  }
+
+  const handleCancelImport = () => {
+    setPendingImport(null)
+    setImportSelectedRows(new Set())
+    setEditingCell(null)
+    setUploadStatus(null)
+  }
+
+  const updatePendingTransaction = (idx, field, value) => {
+    setPendingImport(prev => {
+      if (!prev) return prev
+      const updated = [...prev.transactions]
+      updated[idx] = { ...updated[idx], [field]: value }
+      return { ...prev, transactions: updated }
     })
+  }
+
+  const toggleImportRow = (idx) => {
+    setImportSelectedRows(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx); else next.add(idx)
+      return next
+    })
+  }
+
+  const toggleAllImportRows = () => {
+    if (!pendingImport) return
+    if (importSelectedRows.size === pendingImport.transactions.length) setImportSelectedRows(new Set())
+    else setImportSelectedRows(new Set(pendingImport.transactions.map((_, i) => i)))
+  }
+
+  const deleteSelectedImportRows = () => {
+    if (!pendingImport || importSelectedRows.size === 0) return
+    const kept = pendingImport.transactions.filter((_, i) => !importSelectedRows.has(i))
+    setPendingImport(prev => ({ ...prev, transactions: kept }))
+    setImportSelectedRows(new Set())
   }
 
   const handleWelcomeSubmit = () => { const name = (welcomeInputRef.current?.value || '').trim() || 'Happy'; setUserName(name); localStorage.setItem('spendscope_name', name); setShowWelcome(false) }
@@ -329,6 +557,84 @@ function App() {
     ln('Top Merchants', 14, true); topM.slice(0, 5).forEach(m => ln(`  ${m.name}: ${currency}${fmt(m.value)}`))
     if (subscriptions.length > 0) { y += 5; ln('Recurring Charges', 14, true); subscriptions.forEach(s => ln(`  ${s.merchant}: ~${currency}${fmt(s.monthlyAvg)}/mo`)) }
     doc.save(`SpendScope_Report_${new Date().toISOString().slice(0, 10)}.pdf`)
+  }
+
+  // ========== AUTH GATE ==========
+  if (!authToken) {
+    const AuthLoginForm = () => {
+      const [email, setEmail] = useState(''), [password, setPassword] = useState('')
+      return (
+        <form onSubmit={e => { e.preventDefault(); handleLogin(email, password) }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Your password" style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <button type="submit" disabled={authLoading} style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', cursor: authLoading ? 'not-allowed' : 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: 15, fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40`, opacity: authLoading ? 0.7 : 1, marginTop: 4 }}>{authLoading ? 'Signing in...' : 'Sign In'}</button>
+        </form>
+      )
+    }
+    const AuthSignupForm = () => {
+      const [name, setName] = useState(''), [email, setEmail] = useState(''), [password, setPassword] = useState(''), [country, setCountry] = useState('United States'), [curr, setCurr] = useState('USD')
+      return (
+        <form onSubmit={e => { e.preventDefault(); if (password.length < 6) { setAuthError('Password must be at least 6 characters'); return }; handleSignup(email, password, name, country, curr) }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Your name" style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Min 6 characters" minLength={6} style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Country</label>
+              <select value={country} onChange={e => setCountry(e.target.value)} style={{ width: '100%', padding: '11px 10px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 13, outline: 'none', boxSizing: 'border-box', appearance: 'auto' }}>
+                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Currency</label>
+              <select value={curr} onChange={e => setCurr(e.target.value)} style={{ width: '100%', padding: '11px 10px', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 13, outline: 'none', boxSizing: 'border-box', appearance: 'auto' }}>
+                {CURRENCIES.map(c => <option key={c.symbol} value={c.symbol === '$' ? 'USD' : c.symbol === '\u00A3' ? 'GBP' : c.symbol === '\u20AC' ? 'EUR' : c.symbol === '\u20B9' ? 'INR' : c.symbol === '\u00A5' ? 'JPY' : c.symbol === 'A$' ? 'AUD' : 'CAD'}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <button type="submit" disabled={authLoading} style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', cursor: authLoading ? 'not-allowed' : 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: 15, fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40`, opacity: authLoading ? 0.7 : 1, marginTop: 4 }}>{authLoading ? 'Creating account...' : 'Create Account'}</button>
+        </form>
+      )
+    }
+    return (
+      <div style={{ minHeight: '100vh', background: t.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+        <div style={{ width: '100%', maxWidth: '420px', padding: '40px', background: t.card, borderRadius: '24px', boxShadow: t.cardShadow }}>
+          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 22 }}>S</div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: t.text, margin: '12px 0 4px' }}>SpendScope</h1>
+            <p style={{ color: t.textLight, fontSize: 13, margin: 0 }}>{authPage === 'login' ? 'Sign in to your account' : 'Create your account'}</p>
+          </div>
+          {authError && <div style={{ background: 'rgba(212,98,94,0.1)', border: '1px solid rgba(212,98,94,0.2)', borderRadius: 12, padding: '10px 16px', marginBottom: 16, color: t.red, fontSize: 13 }}>{authError}</div>}
+          {authPage === 'login' ? <AuthLoginForm /> : <AuthSignupForm />}
+          <p style={{ textAlign: 'center', color: t.textLight, fontSize: 13, marginTop: 20 }}>
+            {authPage === 'login' ? "Don't have an account? " : "Already have an account? "}
+            <span onClick={() => { setAuthPage(authPage === 'login' ? 'signup' : 'login'); setAuthError('') }} style={{ color: t.teal, cursor: 'pointer', fontWeight: 600 }}>
+              {authPage === 'login' ? 'Sign up' : 'Log in'}
+            </span>
+          </p>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <button onClick={() => setMode(mode === 'light' ? 'dark' : 'light')} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: 12, cursor: 'pointer' }}>
+              {mode === 'light' ? 'Dark' : 'Light'} Mode
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (loading) return (
@@ -510,18 +816,19 @@ function App() {
             <Sphere size="60px" color={t.teal} top="-15px" right="-15px" opacity={0.3} />
             <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '20px', margin: '0 auto 20px', boxShadow: `0 6px 20px ${t.tealDark}50` }}>{(userName || 'H')[0].toUpperCase()}</div>
             <h2 style={{ fontSize: '20px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>Profile Settings</h2>
-            <p style={{ fontSize: '13px', color: t.textLight, margin: '0 0 24px' }}>Update your display name</p>
-            <input ref={profileInputRef} type="text" placeholder="Your name" defaultValue={userName} onKeyDown={e => { if (e.key === 'Enter') { const n = (profileInputRef.current?.value || '').trim() || 'Happy'; setUserName(n); localStorage.setItem('spendscope_name', n); setShowProfile(false) } }} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '15px', outline: 'none', textAlign: 'center', marginBottom: '12px', boxSizing: 'border-box' }} />
+            <p style={{ fontSize: '13px', color: t.textLight, margin: '0 0 20px' }}>{authUser?.email || 'Update your profile'}</p>
+            <input ref={profileInputRef} type="text" placeholder="Your name" defaultValue={userName} onKeyDown={e => { if (e.key === 'Enter') { const n = (profileInputRef.current?.value || '').trim() || 'Happy'; setUserName(n); localStorage.setItem('spendscope_name', n); if (authToken) fetch(`${API_BASE}/api/auth/me`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name: n }) }).catch(console.error); setShowProfile(false) } }} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '15px', outline: 'none', textAlign: 'center', marginBottom: '12px', boxSizing: 'border-box' }} />
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setShowProfile(false)} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '14px', fontWeight: 500 }}>Cancel</button>
-              <button onClick={() => { const n = (profileInputRef.current?.value || '').trim() || 'Happy'; setUserName(n); localStorage.setItem('spendscope_name', n); setShowProfile(false) }} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40` }}>Save</button>
+              <button onClick={() => { const n = (profileInputRef.current?.value || '').trim() || 'Happy'; setUserName(n); localStorage.setItem('spendscope_name', n); if (authToken) fetch(`${API_BASE}/api/auth/me`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name: n }) }).catch(console.error); setShowProfile(false) }} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40` }}>Save</button>
             </div>
+            <button onClick={() => { handleLogout(); setShowProfile(false) }} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: `1px solid ${t.red}30`, cursor: 'pointer', background: 'transparent', color: t.red, fontSize: '14px', fontWeight: 500, marginTop: '16px', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = `${t.red}08`} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>Log Out</button>
           </div>
         </div>
       )}
 
       {/* SIDEBAR */}
-      <div style={{ width: '220px', background: t.sidebar, padding: '28px 16px', display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 10 }}>
+      <div style={{ width: '220px', background: t.sidebar, padding: '28px 16px', display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 10, overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px', paddingLeft: '8px' }}>
           <div style={{ width: '38px', height: '38px', borderRadius: '12px', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '18px', boxShadow: `0 6px 20px ${t.tealDark}50, inset 0 1px 1px rgba(255,255,255,0.2)` }}>S</div>
           <div><p style={{ color: '#F0EDE8', fontSize: '16px', fontWeight: 700, margin: 0 }}>SpendScope</p><p style={{ color: '#8FA3B0', fontSize: '10px', margin: 0, letterSpacing: '1px', textTransform: 'uppercase' }}>Intelligence</p></div>
@@ -561,8 +868,11 @@ function App() {
             <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 600, fontSize: '12px', flexShrink: 0 }}>{(userName || 'H')[0].toUpperCase()}</div>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userName || 'Happy'}</span>
           </button>
-          <button onClick={() => setMode(mode === 'light' ? 'dark' : 'light')} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '12px', border: 'none', cursor: 'pointer', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#8FA3B0', fontSize: '13px', fontWeight: 500, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}>
+          <button onClick={() => setMode(mode === 'light' ? 'dark' : 'light')} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '12px', border: 'none', cursor: 'pointer', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#8FA3B0', fontSize: '13px', fontWeight: 500, transition: 'all 0.2s', marginBottom: '8px' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}>
             <span style={{ fontSize: '18px' }}>{mode === 'light' ? '\uD83C\uDF19' : '\u2600\uFE0F'}</span>{mode === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </button>
+          <button onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '12px', border: 'none', cursor: 'pointer', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#8FA3B0', fontSize: '13px', fontWeight: 500, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(212,98,94,0.12)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}>
+            <span style={{ fontSize: '16px' }}>{'\u2192'}</span>Log Out
           </button>
           <p style={{ color: '#5A6C7A', fontSize: '10px', margin: '12px 0 0 4px', letterSpacing: '0.5px' }}>Built by Riya</p>
         </div>
@@ -576,7 +886,7 @@ function App() {
         <div style={{ position: 'relative', zIndex: 1, padding: '32px 36px' }}>
           <div style={{ marginBottom: '32px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 700, color: t.text, margin: 0 }}>
-              {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'upload' && 'Upload Statement'}
+              {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'rules' && 'Category Rules'}{page === 'upload' && 'Upload Statement'}
             </h1>
             <p style={{ color: t.textMuted, fontSize: '13px', margin: '4px 0 0' }}>{dateRangeStr}{globalRange !== 'All' ? ` (${globalRange})` : ''}</p>
           </div>
@@ -749,7 +1059,40 @@ function App() {
                 {dateKeys.length === 0 ? <p style={{ textAlign: 'center', color: t.textMuted, padding: '40px 0' }}>No transactions match your search.</p> : dateKeys.map(date => (
                   <div key={date} style={{ marginBottom: '20px' }}>
                     <p style={{ fontSize: '12px', fontWeight: 600, color: t.textMuted, margin: '0 0 8px', letterSpacing: '0.5px', textTransform: 'uppercase', paddingLeft: '4px' }}>{new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                    {grouped[date].map((x, i) => <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', borderRadius: '12px', marginBottom: '4px', transition: 'background 0.2s', cursor: 'default' }} onMouseEnter={e => e.currentTarget.style.background = `${t.teal}08`} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}><div style={{ width: '4px', height: '32px', borderRadius: '2px', background: CAT_COLORS[x.category] || t.teal, marginRight: '14px', boxShadow: `0 0 6px ${CAT_COLORS[x.category] || t.teal}40` }} /><div style={{ flex: 1 }}><p style={{ fontSize: '13px', fontWeight: 500, color: t.text, margin: 0 }}>{x.merchant}</p><p style={{ fontSize: '11px', color: t.textMuted, margin: '2px 0 0' }}>{x.category}</p></div><span style={{ fontSize: '14px', fontWeight: 600, color: x.direction === 'IN' ? t.green : t.red }}>{x.direction === 'IN' ? '+' : '-'}{currency}{fmt(x.direction === 'IN' ? x.money_in : x.money_out)}</span></div>)}
+                    {grouped[date].map((x, i) => {
+                      const dataIdx = data.indexOf(x)
+                      const isFlashed = flashedTxnIdx === dataIdx
+                      const isEditingThis = editingTxnCat && editingTxnCat.index === dataIdx
+                      return <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', borderRadius: '12px', marginBottom: '4px', transition: 'background 0.4s', cursor: 'default', background: isFlashed ? 'rgba(42,157,143,0.15)' : 'transparent' }} onMouseEnter={e => { if (!isFlashed) e.currentTarget.style.background = `${t.teal}08` }} onMouseLeave={e => { if (!isFlashed) e.currentTarget.style.background = 'transparent' }}>
+                        <div style={{ width: '4px', height: '32px', borderRadius: '2px', background: CAT_COLORS[x.category] || t.teal, marginRight: '14px', boxShadow: `0 0 6px ${CAT_COLORS[x.category] || t.teal}40` }} />
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontSize: '13px', fontWeight: 500, color: t.text, margin: 0 }}>{x.merchant}</p>
+                          {isEditingThis ? (
+                            <select autoFocus value={x.category} onChange={e => {
+                              const newCat = e.target.value
+                              setData(prev => prev.map((tx, ti) => ti === dataIdx ? { ...tx, category: newCat } : tx))
+                              // Save learned rule
+                              const merchant = (x.merchant || x.description || '').trim()
+                              if (merchant) {
+                                const rules = JSON.parse(localStorage.getItem('spendscope_learned_rules') || '[]')
+                                const existing = rules.findIndex(r => r.merchant.toLowerCase() === merchant.toLowerCase())
+                                const entry = { merchant, category: newCat, learned_at: new Date().toISOString().slice(0, 10) }
+                                if (existing >= 0) rules[existing] = entry; else rules.push(entry)
+                                localStorage.setItem('spendscope_learned_rules', JSON.stringify(rules))
+                              }
+                              setEditingTxnCat(null)
+                              setFlashedTxnIdx(dataIdx)
+                              setTimeout(() => setFlashedTxnIdx(null), 800)
+                            }} onBlur={() => setEditingTxnCat(null)} style={{ padding: '2px 6px', borderRadius: '6px', border: `1px solid ${t.teal}`, background: t.bg, color: t.text, fontSize: '11px', outline: 'none', cursor: 'pointer', marginTop: '2px' }}>
+                              {ALL_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                            </select>
+                          ) : (
+                            <span onClick={() => setEditingTxnCat({ index: dataIdx, currentCat: x.category })} style={{ cursor: 'pointer', display: 'inline-block', padding: '1px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, marginTop: '2px', background: (CAT_COLORS[x.category] || '#9AABBA') + '18', color: CAT_COLORS[x.category] || t.textLight, transition: 'all 0.15s' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.7'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>{x.category}</span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '14px', fontWeight: 600, color: x.direction === 'IN' ? t.green : t.red }}>{x.direction === 'IN' ? '+' : '-'}{currency}{fmt(x.direction === 'IN' ? x.money_in : x.money_out)}</span>
+                      </div>
+                    })}
                   </div>
                 ))}</>)
             })()}</div>
@@ -823,22 +1166,355 @@ function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>{dynamicInsights.map((ins, i) => <div key={i} style={{ ...(ins.dark ? dc : lc), padding: '24px 28px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', background: COLORS[i % COLORS.length], boxShadow: `0 2px 8px ${COLORS[i % COLORS.length]}50` }} /><h3 style={{ fontSize: '15px', fontWeight: 600, color: ins.dark ? t.cardAltText : t.text, margin: 0 }}>{ins.title}</h3></div><p style={{ fontSize: '14px', lineHeight: '1.75', color: ins.dark ? '#8FA3B0' : t.textLight, margin: 0 }}>{ins.text}</p></div>)}</div>
           </>)}
 
+          {/* RULES */}
+          {page === 'rules' && (() => {
+            void rulesVersion // referenced to trigger re-render on rule changes
+            const learnedRules = JSON.parse(localStorage.getItem('spendscope_learned_rules') || '[]')
+            const bulkRules = JSON.parse(localStorage.getItem('spendscope_bulk_rules') || '[]')
+            const ruleFileInputRef = { current: null }
+            return (<>
+              <p style={{ fontSize: '13px', color: t.textLight, margin: '-20px 0 20px' }}>Manage how transactions are categorized. Learned rules come from inline edits on the Transactions page. Bulk rules let you define custom matching patterns.</p>
+
+              {/* Add New Bulk Rule */}
+              <div style={{ ...lc, marginBottom: '24px', padding: '20px 24px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 14px' }}>Add New Rule</h3>
+                <form onSubmit={e => {
+                  e.preventDefault()
+                  const fd = new FormData(e.target)
+                  const matchType = fd.get('match_type'), matchValue = fd.get('match_value'), category = fd.get('category'), priority = parseInt(fd.get('priority')) || 0
+                  if (!matchValue || !category) return
+                  const rules = JSON.parse(localStorage.getItem('spendscope_bulk_rules') || '[]')
+                  rules.push({ match_type: matchType, match_value: matchValue, category, priority, created_at: new Date().toISOString().slice(0, 10) })
+                  localStorage.setItem('spendscope_bulk_rules', JSON.stringify(rules))
+                  e.target.reset()
+                  setRulesVersion(v => v + 1) // force re-render
+                }} style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, display: 'block', marginBottom: '4px' }}>Match Type</label>
+                    <select name="match_type" defaultValue="contains" style={{ padding: '8px 12px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', cursor: 'pointer' }}>
+                      <option value="contains">Contains</option>
+                      <option value="starts_with">Starts With</option>
+                      <option value="exact">Exact Match</option>
+                      <option value="regex">Regex</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1, minWidth: '160px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, display: 'block', marginBottom: '4px' }}>Match Value</label>
+                    <input name="match_value" type="text" placeholder="e.g., starbucks" required style={{ width: '100%', padding: '8px 12px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, display: 'block', marginBottom: '4px' }}>Category</label>
+                    <select name="category" defaultValue="Other" style={{ padding: '8px 12px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', cursor: 'pointer' }}>
+                      {ALL_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ width: '80px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, display: 'block', marginBottom: '4px' }}>Priority</label>
+                    <input name="priority" type="number" defaultValue={0} style={{ width: '100%', padding: '8px 12px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <button type="submit" style={{ padding: '8px 20px', borderRadius: '10px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '13px', fontWeight: 600, boxShadow: `0 4px 12px ${t.tealDark}30` }}>Add Rule</button>
+                </form>
+              </div>
+
+              {/* Learned Rules */}
+              <div style={{ ...lc, marginBottom: '24px', padding: '20px 24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: 0 }}>Learned Rules <span style={{ fontSize: '12px', fontWeight: 400, color: t.textMuted }}>({learnedRules.length})</span></h3>
+                  {learnedRules.length > 0 && <button onClick={() => { localStorage.setItem('spendscope_learned_rules', '[]'); setRulesVersion(v => v + 1) }} style={{ padding: '5px 14px', borderRadius: '8px', border: `1px solid ${t.red}40`, cursor: 'pointer', background: `${t.red}08`, color: t.red, fontSize: '11px', fontWeight: 600 }}>Clear All Learned</button>}
+                </div>
+                {learnedRules.length === 0 ? <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>No learned rules yet. Edit a category on the Transactions page to create one.</p> : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {learnedRules.map((rule, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderRadius: '10px', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = `${t.teal}06`} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <span style={{ fontSize: '13px', fontWeight: 500, color: t.text, flex: 1 }}>{rule.merchant}</span>
+                        <span style={{ fontSize: '12px', color: t.textMuted, margin: '0 12px' }}>{'\u2192'}</span>
+                        <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 600, background: (CAT_COLORS[rule.category] || '#9AABBA') + '18', color: CAT_COLORS[rule.category] || t.textLight }}>{rule.category}</span>
+                        <span style={{ fontSize: '10px', color: t.textMuted, margin: '0 12px' }}>{rule.learned_at}</span>
+                        <button onClick={() => {
+                          const rules = JSON.parse(localStorage.getItem('spendscope_learned_rules') || '[]')
+                          rules.splice(i, 1)
+                          localStorage.setItem('spendscope_learned_rules', JSON.stringify(rules))
+                          setRulesVersion(v => v + 1)
+                        }} style={{ padding: '3px 10px', borderRadius: '6px', border: `1px solid ${t.red}30`, cursor: 'pointer', background: 'transparent', color: t.red, fontSize: '11px', fontWeight: 600 }}>Delete</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Bulk Rules */}
+              <div style={{ ...lc, marginBottom: '24px', padding: '20px 24px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 14px' }}>Bulk Rules <span style={{ fontSize: '12px', fontWeight: 400, color: t.textMuted }}>({bulkRules.length})</span></h3>
+                {bulkRules.length === 0 ? <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>No bulk rules yet. Use the form above to create custom matching rules.</p> : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', padding: '6px 12px', fontSize: '10px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <span style={{ flex: 1 }}>Match Type</span><span style={{ flex: 2 }}>Match Value</span><span style={{ flex: 1 }}>Category</span><span style={{ width: '60px', textAlign: 'center' }}>Priority</span><span style={{ width: '60px' }}></span>
+                    </div>
+                    {bulkRules.map((rule, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderRadius: '10px', borderBottom: `1px solid ${t.border}40`, transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = `${t.teal}06`} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <span style={{ flex: 1, fontSize: '12px', color: t.textLight, fontStyle: 'italic' }}>{rule.match_type}</span>
+                        <span style={{ flex: 2, fontSize: '13px', fontWeight: 500, color: t.text }}>{rule.match_value}</span>
+                        <span style={{ flex: 1 }}><span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 600, background: (CAT_COLORS[rule.category] || '#9AABBA') + '18', color: CAT_COLORS[rule.category] || t.textLight }}>{rule.category}</span></span>
+                        <span style={{ width: '60px', textAlign: 'center', fontSize: '12px', color: t.textMuted }}>{rule.priority || 0}</span>
+                        <button onClick={() => {
+                          const rules = JSON.parse(localStorage.getItem('spendscope_bulk_rules') || '[]')
+                          rules.splice(i, 1)
+                          localStorage.setItem('spendscope_bulk_rules', JSON.stringify(rules))
+                          setRulesVersion(v => v + 1)
+                        }} style={{ padding: '3px 10px', borderRadius: '6px', border: `1px solid ${t.red}30`, cursor: 'pointer', background: 'transparent', color: t.red, fontSize: '11px', fontWeight: 600, width: '60px' }}>Delete</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div style={{ ...lc, padding: '20px 24px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 14px' }}>Actions</h3>
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <button onClick={() => {
+                    setData(prev => prev.map(tx => ({ ...tx, category: categorizeWithRules(tx.merchant || tx.description || '') })))
+                    setUploadStatus({ type: 'success', message: `Re-categorized ${data.length} transactions using current rules.` })
+                    setTimeout(() => setUploadStatus(null), 3000)
+                  }} style={{ padding: '10px 24px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '13px', fontWeight: 600, boxShadow: `0 4px 12px ${t.tealDark}30` }}>Apply Rules to All Transactions</button>
+                  <button onClick={() => {
+                    const exportData = { learned_rules: learnedRules, bulk_rules: bulkRules, exported_at: new Date().toISOString() }
+                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a'); a.href = url; a.download = `spendscope_rules_${new Date().toISOString().slice(0, 10)}.json`; a.click()
+                    URL.revokeObjectURL(url)
+                  }} style={{ padding: '10px 24px', borderRadius: '12px', border: `1px solid ${t.teal}40`, cursor: 'pointer', background: 'transparent', color: t.teal, fontSize: '13px', fontWeight: 600 }}>Export Rules</button>
+                  <button onClick={() => ruleFileInputRef.current?.click()} style={{ padding: '10px 24px', borderRadius: '12px', border: `1px solid ${t.teal}40`, cursor: 'pointer', background: 'transparent', color: t.teal, fontSize: '13px', fontWeight: 600 }}>Import Rules</button>
+                  <input ref={el => ruleFileInputRef.current = el} type="file" accept=".json" style={{ display: 'none' }} onChange={e => {
+                    const file = e.target.files?.[0]; if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = ev => {
+                      try {
+                        const imported = JSON.parse(ev.target.result)
+                        if (imported.learned_rules) localStorage.setItem('spendscope_learned_rules', JSON.stringify(imported.learned_rules))
+                        if (imported.bulk_rules) localStorage.setItem('spendscope_bulk_rules', JSON.stringify(imported.bulk_rules))
+                        setUploadStatus({ type: 'success', message: `Imported ${(imported.learned_rules || []).length} learned rules and ${(imported.bulk_rules || []).length} bulk rules.` })
+                        setTimeout(() => setUploadStatus(null), 3000)
+                        setRulesVersion(v => v + 1)
+                      } catch { setUploadStatus({ type: 'error', message: 'Invalid JSON file.' }); setTimeout(() => setUploadStatus(null), 3000) }
+                    }
+                    reader.readAsText(file)
+                    e.target.value = ''
+                  }} />
+                </div>
+                {uploadStatus && <div style={{ marginTop: '12px', padding: '10px 16px', borderRadius: '10px', background: uploadStatus.type === 'success' ? `${t.green}08` : `${t.red}08`, border: `1px solid ${uploadStatus.type === 'success' ? t.green : t.red}20` }}><p style={{ margin: 0, fontSize: '13px', color: t.text, fontWeight: 500 }}>{uploadStatus.message}</p></div>}
+              </div>
+            </>)
+          })()}
+
           {/* UPLOAD */}
           {page === 'upload' && (<>
-            <div style={{ ...lc, padding: '16px 24px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}><label style={{ fontSize: '13px', fontWeight: 500, color: t.text, whiteSpace: 'nowrap' }}>Account Name:</label><input type="text" placeholder="e.g., Checking, Credit Card" value={uploadAccountName} onChange={e => setUploadAccountName(e.target.value)} style={{ flex: 1, padding: '8px 14px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none' }} onFocus={e => e.target.style.borderColor = t.teal} onBlur={e => e.target.style.borderColor = t.border} /><span style={{ fontSize: '11px', color: t.textMuted }}>Optional</span></div>
-            <input ref={fileInputRef} type="file" accept=".csv,.pdf" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleFileUpload(e.target.files[0]); e.target.value = '' }} />
-            <div style={{ ...lc, padding: '60px 40px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s', border: dragOver ? `2px dashed ${t.teal}` : `2px dashed ${t.textMuted}40`, background: dragOver ? `${t.teal}08` : t.card }}
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) handleFileUpload(file) }} onClick={() => fileInputRef.current?.click()}>
-              <Sphere size="80px" color={t.teal} top="20px" right="40px" opacity={0.2} /><Sphere size="50px" color={t.sand} bottom="20px" left="60px" opacity={0.15} />
-              {uploadStatus?.type === 'loading' ? (<div style={{ position: 'relative', zIndex: 1 }}><div style={{ width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${t.border}`, borderTopColor: t.tealDark, animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} /><p style={{ fontSize: '16px', fontWeight: 600, color: t.text }}>{uploadStatus.message}</p><style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style></div>) : (<>
-                <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.6, position: 'relative', zIndex: 1 }}>{'\uD83D\uDCC4'}</div>
-                <h2 style={{ fontSize: '20px', fontWeight: 600, color: t.text, margin: '0 0 8px', position: 'relative', zIndex: 1 }}>Drop your bank statement here</h2>
-                <p style={{ fontSize: '14px', color: t.textLight, margin: '0 0 8px', position: 'relative', zIndex: 1 }}>Supports CSV and PDF files {'\u2014'} columns are auto-detected</p>
-                <p style={{ fontSize: '12px', color: t.textMuted, margin: 0, position: 'relative', zIndex: 1 }}>Your data is processed locally {'\u2014'} nothing leaves your browser</p>
-              </>)}
-            </div>
-            {uploadStatus && uploadStatus.type !== 'loading' && <div style={{ ...lc, marginTop: '16px', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${uploadStatus.type === 'success' ? t.green : t.red}20`, background: uploadStatus.type === 'success' ? `${t.green}08` : `${t.red}08` }}><span style={{ fontSize: '20px' }}>{uploadStatus.type === 'success' ? '\u2705' : '\u274C'}</span><p style={{ fontSize: '14px', color: t.text, margin: 0, fontWeight: 500 }}>{uploadStatus.message}</p></div>}
-            <div style={{ textAlign: 'center', marginTop: '24px' }}><button onClick={() => setPage('overview')} style={{ padding: '12px 32px', borderRadius: '14px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40`, transition: 'transform 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>Try Demo Data Instead</button></div>
+
+            {/* ===== COLUMN MAPPER VIEW ===== */}
+            {showColumnMapper && !pendingImport && (<>
+              <div style={{ ...lc, marginBottom: '16px', padding: '20px 24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <div>
+                    <h2 style={{ fontSize: '18px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>Map Your Columns</h2>
+                    <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>We could not auto-detect your CSV columns. Please map them manually.</p>
+                  </div>
+                  <button onClick={() => { setShowColumnMapper(null); setUploadStatus(null) }} style={{ padding: '6px 16px', borderRadius: '10px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '13px', fontWeight: 500 }}>Cancel</button>
+                </div>
+
+                {/* Preview table */}
+                <div style={{ overflowX: 'auto', marginBottom: '20px', borderRadius: '12px', border: `1px solid ${t.border}` }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ background: `${t.teal}10` }}>
+                        {showColumnMapper.headers.map((h, i) => <th key={i} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' }}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(showColumnMapper.previewRows || []).slice(0, 5).map((row, ri) => (
+                        <tr key={ri} style={{ borderBottom: `1px solid ${t.border}` }}>
+                          {showColumnMapper.headers.map((h, ci) => <td key={ci} style={{ padding: '8px 12px', color: t.textLight, whiteSpace: 'nowrap', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row[h] || ''}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mapping dropdowns */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                  {[
+                    { key: 'date', label: 'Date Column', required: true },
+                    { key: 'description', label: 'Description / Merchant Column', required: true },
+                    { key: 'amount', label: 'Amount Column (single)', required: false },
+                    { key: 'amountIn', label: 'Money In Column', required: false },
+                    { key: 'amountOut', label: 'Money Out Column', required: false },
+                    { key: 'balance', label: 'Balance Column', required: false },
+                  ].map(({ key, label, required }) => (
+                    <div key={key}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: t.text, display: 'block', marginBottom: '4px' }}>{label}{required && <span style={{ color: t.red }}> *</span>}</label>
+                      <select value={columnMapping[key]} onChange={e => setColumnMapping(prev => ({ ...prev, [key]: e.target.value }))} style={{ width: '100%', padding: '8px 12px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', cursor: 'pointer' }}>
+                        <option value="">-- Select --</option>
+                        {showColumnMapper.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Date format selector */}
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: t.text, display: 'block', marginBottom: '4px' }}>Date Format</label>
+                  <select value={columnDateFormat} onChange={e => setColumnDateFormat(e.target.value)} style={{ width: '240px', padding: '8px 12px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', cursor: 'pointer' }}>
+                    <option value="auto">Auto-detect</option>
+                    <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                    <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                    <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                    <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+                    <option value="MM-DD-YYYY">MM-DD-YYYY</option>
+                    <option value="DD.MM.YYYY">DD.MM.YYYY</option>
+                  </select>
+                </div>
+
+                {/* Save as template */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', padding: '12px 16px', borderRadius: '12px', background: `${t.teal}06`, border: `1px solid ${t.border}` }}>
+                  <input type="checkbox" checked={mapperSaveTemplate} onChange={e => setMapperSaveTemplate(e.target.checked)} style={{ accentColor: t.teal, width: '16px', height: '16px', cursor: 'pointer' }} />
+                  <label style={{ fontSize: '13px', color: t.text, cursor: 'pointer' }} onClick={() => setMapperSaveTemplate(!mapperSaveTemplate)}>Save as template for this bank</label>
+                  {mapperSaveTemplate && <input type="text" placeholder="Bank name" value={mapperBankName} onChange={e => setMapperBankName(e.target.value)} style={{ padding: '6px 12px', borderRadius: '8px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', width: '180px' }} />}
+                </div>
+
+                {/* Submit */}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button onClick={handleColumnMapperSubmit} disabled={!columnMapping.date || !columnMapping.description || (!columnMapping.amount && !columnMapping.amountIn)} style={{ padding: '12px 32px', borderRadius: '14px', border: 'none', cursor: (!columnMapping.date || !columnMapping.description || (!columnMapping.amount && !columnMapping.amountIn)) ? 'not-allowed' : 'pointer', background: (!columnMapping.date || !columnMapping.description || (!columnMapping.amount && !columnMapping.amountIn)) ? t.textMuted : `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, opacity: (!columnMapping.date || !columnMapping.description || (!columnMapping.amount && !columnMapping.amountIn)) ? 0.5 : 1, boxShadow: `0 4px 16px ${t.tealDark}30`, transition: 'all 0.2s' }}>Parse with this Mapping</button>
+                </div>
+              </div>
+
+              {uploadStatus && uploadStatus.type !== 'loading' && <div style={{ ...lc, marginTop: '16px', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${uploadStatus.type === 'success' ? t.green : t.red}20`, background: uploadStatus.type === 'success' ? `${t.green}08` : `${t.red}08` }}><span style={{ fontSize: '20px' }}>{uploadStatus.type === 'success' ? '\u2705' : '\u274C'}</span><p style={{ fontSize: '14px', color: t.text, margin: 0, fontWeight: 500 }}>{uploadStatus.message}</p></div>}
+            </>)}
+
+            {/* ===== IMPORT CONFIRMATION VIEW ===== */}
+            {pendingImport && (<>
+              <div style={{ ...lc, marginBottom: '16px', padding: '20px 24px' }}>
+                {/* Header info */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '20px' }}>
+                  <div>
+                    <h2 style={{ fontSize: '18px', fontWeight: 700, color: t.text, margin: '0 0 6px' }}>Review Import</h2>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                      {pendingImport.bankName && <span style={{ fontSize: '12px', color: t.textMuted, background: `${t.teal}12`, padding: '3px 10px', borderRadius: '6px', fontWeight: 500 }}>Bank: {pendingImport.bankName}</span>}
+                      <span style={{ fontSize: '12px', color: t.textMuted, background: `${t.sand}15`, padding: '3px 10px', borderRadius: '6px', fontWeight: 500 }}>File: {pendingImport.filename}</span>
+                      <span style={{ fontSize: '12px', color: t.textMuted, background: `${t.teal}12`, padding: '3px 10px', borderRadius: '6px', fontWeight: 500 }}>{pendingImport.transactions.length} transaction{pendingImport.transactions.length !== 1 ? 's' : ''}</span>
+                      {pendingImport.transactions.some(tx => tx.is_redacted) && <span style={{ fontSize: '12px', color: '#B8860B', background: 'rgba(184,134,11,0.12)', padding: '3px 10px', borderRadius: '6px', fontWeight: 600 }}>Contains redacted entries</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    <button onClick={handleCancelImport} style={{ padding: '10px 24px', borderRadius: '12px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '13px', fontWeight: 600, transition: 'all 0.2s' }}>Cancel</button>
+                    <button onClick={handleConfirmImport} style={{ padding: '10px 24px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '13px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40`, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>Confirm Import ({pendingImport.transactions.length - importSelectedRows.size})</button>
+                  </div>
+                </div>
+
+                {/* Bulk actions bar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', padding: '8px 12px', borderRadius: '10px', background: `${t.bg}` }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: t.textLight, cursor: 'pointer', userSelect: 'none' }}>
+                    <input type="checkbox" checked={pendingImport.transactions.length > 0 && importSelectedRows.size === pendingImport.transactions.length} onChange={toggleAllImportRows} style={{ accentColor: t.teal, width: '14px', height: '14px', cursor: 'pointer' }} />
+                    Select All
+                  </label>
+                  {importSelectedRows.size > 0 && (<>
+                    <span style={{ fontSize: '12px', color: t.textMuted }}>{importSelectedRows.size} selected</span>
+                    <button onClick={deleteSelectedImportRows} style={{ padding: '4px 12px', borderRadius: '8px', border: `1px solid ${t.red}40`, cursor: 'pointer', background: `${t.red}10`, color: t.red, fontSize: '12px', fontWeight: 600, transition: 'all 0.2s' }}>Delete Selected</button>
+                  </>)}
+                  <span style={{ marginLeft: 'auto', fontSize: '11px', color: t.textMuted }}>Click a category or merchant to edit</span>
+                </div>
+
+                {/* Transaction table */}
+                <div style={{ overflowX: 'auto', borderRadius: '12px', border: `1px solid ${t.border}`, maxHeight: '500px', overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                      <tr style={{ background: `${t.teal}10` }}>
+                        <th style={{ padding: '10px 8px', width: '36px', borderBottom: `1px solid ${t.border}` }}></th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' }}>Date</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap', minWidth: '180px' }}>Merchant / Description</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap', minWidth: '140px' }}>Category</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' }}>Amount</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' }}>Direction</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingImport.transactions.map((tx, idx) => {
+                        const isRedacted = tx.is_redacted
+                        const isSelected = importSelectedRows.has(idx)
+                        const rowBg = isRedacted ? 'rgba(184,134,11,0.08)' : isSelected ? `${t.red}08` : idx % 2 === 0 ? 'transparent' : `${t.bg}40`
+                        const amt = tx.direction === 'IN' ? tx.money_in : tx.money_out
+                        return (
+                          <tr key={idx} style={{ background: rowBg, borderBottom: `1px solid ${t.border}`, transition: 'background 0.15s' }}>
+                            <td style={{ padding: '8px', textAlign: 'center' }}>
+                              <input type="checkbox" checked={isSelected} onChange={() => toggleImportRow(idx)} style={{ accentColor: t.teal, width: '14px', height: '14px', cursor: 'pointer' }} />
+                            </td>
+                            <td style={{ padding: '8px 12px', color: t.textLight, whiteSpace: 'nowrap', fontSize: '12px' }}>{tx.date_iso}</td>
+
+                            {/* Editable merchant */}
+                            <td style={{ padding: '4px 12px' }}>
+                              {editingCell?.rowIdx === idx && editingCell?.field === 'merchant' ? (
+                                <input type="text" autoFocus value={tx.merchant || tx.description || ''} onChange={e => { updatePendingTransaction(idx, 'merchant', e.target.value); updatePendingTransaction(idx, 'description', e.target.value) }} onBlur={() => setEditingCell(null)} onKeyDown={e => { if (e.key === 'Enter') setEditingCell(null) }} style={{ width: '100%', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${t.teal}`, background: t.bg, color: t.text, fontSize: '12px', outline: 'none' }} />
+                              ) : (
+                                <span onClick={() => setEditingCell({ rowIdx: idx, field: 'merchant' })} style={{ cursor: 'pointer', display: 'block', padding: '4px 8px', borderRadius: '6px', transition: 'background 0.15s', color: t.text, fontSize: '12px' }} onMouseEnter={e => e.currentTarget.style.background = `${t.teal}10`} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{tx.merchant || tx.description || 'Unknown'}</span>
+                              )}
+                            </td>
+
+                            {/* Editable category */}
+                            <td style={{ padding: '4px 12px' }}>
+                              {editingCell?.rowIdx === idx && editingCell?.field === 'category' ? (
+                                <select autoFocus value={tx.category || 'Other'} onChange={e => { updatePendingTransaction(idx, 'category', e.target.value); setEditingCell(null) }} onBlur={() => setEditingCell(null)} style={{ width: '100%', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${t.teal}`, background: t.bg, color: t.text, fontSize: '12px', outline: 'none', cursor: 'pointer' }}>
+                                  {ALL_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                </select>
+                              ) : (
+                                <span onClick={() => setEditingCell({ rowIdx: idx, field: 'category' })} style={{ cursor: 'pointer', display: 'inline-block', padding: '3px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 600, background: (CAT_COLORS[tx.category] || '#9AABBA') + '18', color: CAT_COLORS[tx.category] || t.textLight, transition: 'all 0.15s' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.8'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>{tx.category || 'Other'}</span>
+                              )}
+                            </td>
+
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: tx.direction === 'IN' ? t.green : t.text, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+                              {tx.direction === 'IN' ? '+' : '-'}{currency}{fmt(amt)}
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '6px', background: tx.direction === 'IN' ? `${t.green}15` : `${t.red}12`, color: tx.direction === 'IN' ? t.green : t.red }}>{tx.direction}</span>
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              {isRedacted && <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px', background: 'rgba(184,134,11,0.15)', color: '#B8860B' }}>Redacted</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Bottom action bar */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${t.border}` }}>
+                  <div style={{ fontSize: '13px', color: t.textMuted }}>
+                    {pendingImport.transactions.length - importSelectedRows.size} of {pendingImport.transactions.length} transactions will be imported
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={handleCancelImport} style={{ padding: '10px 24px', borderRadius: '12px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '13px', fontWeight: 600 }}>Cancel</button>
+                    <button onClick={handleConfirmImport} style={{ padding: '10px 28px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '13px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40` }}>Confirm Import</button>
+                  </div>
+                </div>
+              </div>
+            </>)}
+
+            {/* ===== DEFAULT UPLOAD VIEW (drag-and-drop) ===== */}
+            {!pendingImport && !showColumnMapper && (<>
+              <div style={{ ...lc, padding: '16px 24px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}><label style={{ fontSize: '13px', fontWeight: 500, color: t.text, whiteSpace: 'nowrap' }}>Account Name:</label><input type="text" placeholder="e.g., Checking, Credit Card" value={uploadAccountName} onChange={e => setUploadAccountName(e.target.value)} style={{ flex: 1, padding: '8px 14px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none' }} onFocus={e => e.target.style.borderColor = t.teal} onBlur={e => e.target.style.borderColor = t.border} /><span style={{ fontSize: '11px', color: t.textMuted }}>Optional</span></div>
+              <input ref={fileInputRef} type="file" accept=".csv,.pdf" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleFileUpload(e.target.files[0]); e.target.value = '' }} />
+              <div style={{ ...lc, padding: '60px 40px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s', border: dragOver ? `2px dashed ${t.teal}` : `2px dashed ${t.textMuted}40`, background: dragOver ? `${t.teal}08` : t.card }}
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) handleFileUpload(file) }} onClick={() => fileInputRef.current?.click()}>
+                <Sphere size="80px" color={t.teal} top="20px" right="40px" opacity={0.2} /><Sphere size="50px" color={t.sand} bottom="20px" left="60px" opacity={0.15} />
+                {uploadStatus?.type === 'loading' ? (<div style={{ position: 'relative', zIndex: 1 }}><div style={{ width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${t.border}`, borderTopColor: t.tealDark, animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} /><p style={{ fontSize: '16px', fontWeight: 600, color: t.text }}>{uploadStatus.message}</p><style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style></div>) : (<>
+                  <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.6, position: 'relative', zIndex: 1 }}>{'\uD83D\uDCC4'}</div>
+                  <h2 style={{ fontSize: '20px', fontWeight: 600, color: t.text, margin: '0 0 8px', position: 'relative', zIndex: 1 }}>Drop your bank statement here</h2>
+                  <p style={{ fontSize: '14px', color: t.textLight, margin: '0 0 8px', position: 'relative', zIndex: 1 }}>Supports CSV and PDF files {'\u2014'} columns are auto-detected</p>
+                  <p style={{ fontSize: '12px', color: t.textMuted, margin: 0, position: 'relative', zIndex: 1 }}>Your data is processed locally {'\u2014'} nothing leaves your browser</p>
+                </>)}
+              </div>
+              {uploadStatus && uploadStatus.type !== 'loading' && <div style={{ ...lc, marginTop: '16px', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${uploadStatus.type === 'success' ? t.green : t.red}20`, background: uploadStatus.type === 'success' ? `${t.green}08` : `${t.red}08` }}><span style={{ fontSize: '20px' }}>{uploadStatus.type === 'success' ? '\u2705' : '\u274C'}</span><p style={{ fontSize: '14px', color: t.text, margin: 0, fontWeight: 500 }}>{uploadStatus.message}</p></div>}
+              <div style={{ textAlign: 'center', marginTop: '24px' }}><button onClick={() => setPage('overview')} style={{ padding: '12px 32px', borderRadius: '14px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40`, transition: 'transform 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>Try Demo Data Instead</button></div>
+            </>)}
           </>)}
         </div>
       </div>

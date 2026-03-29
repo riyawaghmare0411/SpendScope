@@ -1,0 +1,19 @@
+{
+  "bank_name": "Barclays",
+  "country": "UK",
+  "header_patterns": [
+    "number,date,account,amount,subcategory,memo"
+  ],
+  "filename_patterns": ["barclays"],
+  "columns": {
+    "date": "Date",
+    "description": "Memo",
+    "category": "Subcategory",
+    "amount": "Amount"
+  },
+  "date_format": "%d/%m/%Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

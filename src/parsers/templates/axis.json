@@ -1,0 +1,20 @@
+{
+  "bank_name": "Axis Bank",
+  "country": "IN",
+  "header_patterns": [
+    "tran date,chqno,particulars,dr,cr,bal,sol"
+  ],
+  "filename_patterns": ["axis"],
+  "columns": {
+    "date": "Tran Date",
+    "description": "PARTICULARS",
+    "money_in": "CR",
+    "money_out": "DR",
+    "balance": "BAL"
+  },
+  "date_format": "%d-%m-%Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

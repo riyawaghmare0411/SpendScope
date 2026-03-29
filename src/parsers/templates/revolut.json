@@ -1,0 +1,20 @@
+{
+  "bank_name": "Revolut",
+  "country": "UK",
+  "header_patterns": [
+    "type,product,started date,completed date,description,amount,fee,currency,state,balance"
+  ],
+  "filename_patterns": ["revolut"],
+  "columns": {
+    "date": "Started Date",
+    "description": "Description",
+    "type": "Type",
+    "amount": "Amount",
+    "balance": "Balance"
+  },
+  "date_format": "%Y-%m-%d %H:%M:%S",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

@@ -1,0 +1,20 @@
+{
+  "bank_name": "Chase",
+  "country": "US",
+  "header_patterns": [
+    "transaction date,post date,description,category,type,amount,memo"
+  ],
+  "filename_patterns": ["chase"],
+  "columns": {
+    "date": "Transaction Date",
+    "description": "Description",
+    "category": "Category",
+    "type": "Type",
+    "amount": "Amount"
+  },
+  "date_format": "%m/%d/%Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

@@ -1,0 +1,18 @@
+{
+  "bank_name": "American Express",
+  "country": "US",
+  "header_patterns": [
+    "date,description,amount"
+  ],
+  "filename_patterns": ["amex", "american_express", "americanexpress"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "amount": "Amount"
+  },
+  "date_format": "%m/%d/%Y",
+  "amount_mode": "single_absolute",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

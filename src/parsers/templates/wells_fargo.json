@@ -1,0 +1,18 @@
+{
+  "bank_name": "Wells Fargo",
+  "country": "US",
+  "header_patterns": [
+    "date,amount,*,*,description"
+  ],
+  "filename_patterns": ["wells_fargo", "wellsfargo", "wells"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "amount": "Amount"
+  },
+  "date_format": "%m/%d/%Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

@@ -1,0 +1,20 @@
+{
+  "bank_name": "ICICI Bank",
+  "country": "IN",
+  "header_patterns": [
+    "s no.,value date,transaction date,cheque number,transaction remarks,withdrawal amount (inr),deposit amount (inr),balance (inr)"
+  ],
+  "filename_patterns": ["icici"],
+  "columns": {
+    "date": "Transaction Date",
+    "description": "Transaction Remarks",
+    "money_in": "Deposit Amount (INR)",
+    "money_out": "Withdrawal Amount (INR)",
+    "balance": "Balance (INR)"
+  },
+  "date_format": "%d/%m/%Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

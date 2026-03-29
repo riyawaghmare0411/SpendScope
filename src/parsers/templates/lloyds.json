@@ -1,0 +1,24 @@
+{
+  "bank_name": "Lloyds Bank",
+  "country": "UK",
+  "header_patterns": [
+    "date,date_iso,description,merchant,type,money_in,money_out,balance,direction,category"
+  ],
+  "filename_patterns": ["lloyds", "lloyds_bank"],
+  "columns": {
+    "date": "date_iso",
+    "description": "description",
+    "merchant": "merchant",
+    "category": "category",
+    "type": "type",
+    "money_in": "money_in",
+    "money_out": "money_out",
+    "balance": "balance",
+    "direction": "direction"
+  },
+  "date_format": "%Y-%m-%d",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

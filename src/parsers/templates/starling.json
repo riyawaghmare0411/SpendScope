@@ -1,0 +1,21 @@
+{
+  "bank_name": "Starling Bank",
+  "country": "UK",
+  "header_patterns": [
+    "date,counter party,reference,type,amount (gbp),balance (gbp)"
+  ],
+  "filename_patterns": ["starling"],
+  "columns": {
+    "date": "Date",
+    "description": "Reference",
+    "merchant": "Counter Party",
+    "type": "Type",
+    "amount": "Amount (GBP)",
+    "balance": "Balance (GBP)"
+  },
+  "date_format": "%d/%m/%Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

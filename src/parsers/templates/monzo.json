@@ -1,0 +1,22 @@
+{
+  "bank_name": "Monzo",
+  "country": "UK",
+  "header_patterns": [
+    "transaction id,date,time,type,name,emoji,category,amount,currency,local amount,local currency,notes and #tags,address,receipt,description,category split,money out,money in"
+  ],
+  "filename_patterns": ["monzo"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "merchant": "Name",
+    "category": "Category",
+    "type": "Type",
+    "money_in": "Money In",
+    "money_out": "Money Out"
+  },
+  "date_format": "%d/%m/%Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

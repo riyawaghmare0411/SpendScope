@@ -1,0 +1,20 @@
+{
+  "bank_name": "NatWest",
+  "country": "UK",
+  "header_patterns": [
+    "date,type,description,value,balance,account name,account number"
+  ],
+  "filename_patterns": ["natwest"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "type": "Type",
+    "amount": "Value",
+    "balance": "Balance"
+  },
+  "date_format": "%d/%m/%Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

@@ -1,0 +1,47 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Frontend
+frontend/
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Notebooks and dev tools
+*.ipynb
+notebooks/
+
+# Setup/docs
+setup/
+*.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (not needed in prod)
+data/raw/
+data/synthetic/
+
+# Claude
+.claude/

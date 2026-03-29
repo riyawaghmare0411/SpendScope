@@ -1,0 +1,20 @@
+{
+  "bank_name": "HDFC Bank",
+  "country": "IN",
+  "header_patterns": [
+    "date,narration,chq./ref.no.,value dt,withdrawal amt.,deposit amt.,closing balance"
+  ],
+  "filename_patterns": ["hdfc"],
+  "columns": {
+    "date": "Date",
+    "description": "Narration",
+    "money_in": "Deposit Amt.",
+    "money_out": "Withdrawal Amt.",
+    "balance": "Closing Balance"
+  },
+  "date_format": "%d/%m/%y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

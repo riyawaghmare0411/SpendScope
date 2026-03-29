@@ -1,0 +1,20 @@
+{
+  "bank_name": "Bank of Georgia",
+  "country": "GE",
+  "header_patterns": [
+    "date,description,debit,credit,balance,currency"
+  ],
+  "filename_patterns": ["bank_of_georgia", "bog"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "money_in": "Credit",
+    "money_out": "Debit",
+    "balance": "Balance"
+  },
+  "date_format": "%d.%m.%Y",
+  "amount_mode": "split",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

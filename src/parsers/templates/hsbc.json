@@ -1,0 +1,18 @@
+{
+  "bank_name": "HSBC UK",
+  "country": "UK",
+  "header_patterns": [
+    "date,description,amount"
+  ],
+  "filename_patterns": ["hsbc"],
+  "columns": {
+    "date": "Date",
+    "description": "Description",
+    "amount": "Amount"
+  },
+  "date_format": "%d %b %Y",
+  "amount_mode": "single",
+  "encoding": "utf-8",
+  "header_row": 0,
+  "skip_rows": 0
+}

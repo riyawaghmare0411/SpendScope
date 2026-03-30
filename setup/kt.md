@@ -82,7 +82,7 @@ npm run dev
 2. **Merchant categorization**: Hardcoded keyword map in App.jsx (~88 merchants). Will evolve to user-editable rules.
 3. **No database yet**: localStorage + JSON files. PostgreSQL migration planned (Milestone 4).
 4. **UK-centric data**: Demo data and merchant mappings are UK-focused. Expanding to global (US, India, Georgia).
-5. **Monolith frontend**: App.jsx is 850 lines. Component split planned (Milestone 6).
+5. **Modular frontend**: App.jsx refactored from 1524 to 538 lines (M6). Shared constants in constants.js, reusable UI primitives in components/ui.jsx, 11 page/layout components in components/.
 6. **Template-based bank parsing**: 24 bank templates in src/parsers/templates/ covering UK (7), US (8), India (5), Georgia (2), Global (2). Templates define column mappings and header patterns for auto-detection. New banks are added by creating a JSON template file.
 
 ## Roadmap (Active Plan)
@@ -93,7 +93,7 @@ See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
 - M3: Editable categories (inline + learned + bulk rules)
 - M4: PostgreSQL + auth (email + Google/GitHub OAuth)
 - M5: Cloud deployment (Railway + Vercel) -- DONE
-- M6: Component refactor + polish
+- M6: Component refactor + polish -- DONE
 
 ## API Endpoints (Current)
 | Method | Path | Description |
@@ -136,7 +136,7 @@ See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
 5. Categories empty from PDF parse (must be categorized client-side)
 6. ~~CORS allows all origins~~ **FIXED**: now parameterized via CORS_ORIGINS env var
 7. ~~Pydantic imported but unused~~ **NOT AN ISSUE**: Pydantic is not imported in api.py
-8. 850-line monolith App.jsx
+8. ~~850-line monolith App.jsx~~ **FIXED**: Split into 13 modules (M6), App.jsx now 538 lines
 9. UK-only merchant mapping
 10. ~~No authentication or database~~ **FIXED**: PostgreSQL + JWT auth added in Milestone 4
 

@@ -21,7 +21,21 @@ SpendScope/
 │       └── templates/                  # 24 bank template JSON files
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                     # Main React component (848 lines) -- all pages, charts, logic
+│   │   ├── App.jsx                     # Main React component (538 lines) -- state, handlers, data pipeline, routing
+│   │   ├── constants.js                # Shared constants, themes, helpers, formatters (165 lines)
+│   │   ├── components/
+│   │   │   ├── ui.jsx                  # Reusable UI primitives: Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip (98 lines)
+│   │   │   ├── AuthPages.jsx           # Login + Signup forms (79 lines)
+│   │   │   ├── DashboardPage.jsx       # Overview with stats, charts, activity (87 lines)
+│   │   │   ├── SpendingPage.jsx        # Spending analysis (46 lines)
+│   │   │   ├── MerchantsPage.jsx       # Merchant breakdown (33 lines)
+│   │   │   ├── TransactionsPage.jsx    # Transaction list with inline editing (53 lines)
+│   │   │   ├── CalendarPage.jsx        # Calendar heatmap (20 lines)
+│   │   │   ├── InsightsPage.jsx        # Insights and subscriptions (51 lines)
+│   │   │   ├── RulesPage.jsx           # Category rules CRUD (141 lines)
+│   │   │   ├── UploadPage.jsx          # Upload, import confirmation, column mapper (210 lines)
+│   │   │   ├── Sidebar.jsx             # Navigation sidebar (53 lines)
+│   │   │   └── ProfileModal.jsx        # Profile editing modal (18 lines)
 │   │   ├── App.css                     # Legacy styles (card padding, animations)
 │   │   ├── index.css                   # Tailwind CSS import
 │   │   └── main.jsx                    # React entry point
@@ -67,12 +81,12 @@ SpendScope/
 - Reads from `data/processed/transactions_frontend.json`
 - Dependencies: fastapi, fitz (PyMuPDF), uvicorn
 
-### frontend/src/App.jsx
-- Complete single-file React dashboard (848 lines)
+### frontend/src/App.jsx (post-M6 refactor)
+- Core app shell (538 lines) -- state management, handlers, data pipeline, routing
 - 20+ useState hooks for state management
-- Pages: overview, spending, transactions, merchants, calendar, insights, upload
+- Pages delegated to 11 components in components/
 - Features: dark/light mode, CSV upload (PapaParse), PDF upload (via backend), budget tracking, subscription detection, anomaly detection, peer benchmarks, savings tips
-- Hardcoded: MERCHANT_CATEGORIES (88 entries), PEER_BENCHMARKS, CAT_COLORS, SAVINGS_TIPS
+- Constants extracted to constants.js (MERCHANT_CATEGORIES, PEER_BENCHMARKS, CAT_COLORS, SAVINGS_TIPS, etc.)
 - localStorage persistence: username, budgets, accounts, currency
 - API: fetches from http://127.0.0.1:8000, falls back to demo_data.json
 
@@ -94,6 +108,14 @@ SpendScope/
 ---
 
 ## Changelog
+
+### 2026-03-30 -- Milestone 6: Component Refactor
+- Split App.jsx from 1524 lines to 538 lines (65% reduction), zero functionality changes
+- Created constants.js (165 lines): all shared constants, themes, helpers, formatters extracted from App.jsx
+- Created components/ui.jsx (98 lines): reusable UI primitives (Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip)
+- Created 11 page/layout components in components/: AuthPages, DashboardPage, SpendingPage, MerchantsPage, TransactionsPage, CalendarPage, InsightsPage, RulesPage, UploadPage, Sidebar, ProfileModal
+- App.jsx now contains only: state management, handlers, data pipeline, routing
+- vite build passes cleanly, identical behavior confirmed
 
 ### 2026-03-29 -- Milestone 5: Cloud Deployment
 - Dockerfile: production image using python:3.13-slim, non-root user, installs from requirements.prod.txt

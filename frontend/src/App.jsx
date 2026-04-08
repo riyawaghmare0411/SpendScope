@@ -3,6 +3,8 @@ import Papa from 'papaparse'
 import jsPDF from 'jspdf'
 
 import { API_BASE, themes, COLORS, CAT_COLORS, CURRENCIES, NON_DISCRETIONARY, COUNTRIES, SAVINGS_TIPS, MERCHANT_CATEGORIES, categorizeByMerchant, categorizeWithRules, PEER_BENCHMARKS, fmt, fmtShort, NAV, detectColumns, parseFlexDate } from './constants'
+import { encryptTransactions, decryptTransactions } from './lib/crypto.js'
+import { initializeEncryption, getEncryptionKey, clearKey, generateRecoveryCodes, getSalt } from './lib/keyManager.js'
 import { Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip } from './components/ui'
 import { AuthPages } from './components/AuthPages'
 import { DashboardPage } from './components/DashboardPage'
@@ -42,6 +44,8 @@ function App() {
   const [authPage, setAuthPage] = useState('login')
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
+  const [encryptionKey, setEncryptionKey] = useState(null)
+  const [recoveryCodesShown, setRecoveryCodesShown] = useState(null) // shown once after signup
   const fileInputRef = useRef(null), welcomeInputRef = useRef(null), profileInputRef = useRef(null)
   const t = themes[mode]
 
@@ -62,6 +66,10 @@ function App() {
       setAuthUser(data.user)
       setUserName(data.user.name)
       setCurrency(data.user.currency === 'USD' ? '$' : data.user.currency === 'GBP' ? '\u00A3' : data.user.currency === 'EUR' ? '\u20AC' : data.user.currency === 'INR' ? '\u20B9' : '$')
+      if (data.user.encryption_salt) {
+        const { key } = await initializeEncryption(password, data.user.encryption_salt)
+        setEncryptionKey(key)
+      }
     } catch (e) { setAuthError(e.message) }
     finally { setAuthLoading(false) }
   }
@@ -82,6 +90,15 @@ function App() {
       setAuthUser(data.user)
       setUserName(name)
       setShowWelcome(false)
+      const { key, salt } = await initializeEncryption(password)
+      setEncryptionKey(key)
+      const codes = generateRecoveryCodes()
+      setRecoveryCodesShown(codes)
+      fetch(`${API_BASE}/api/auth/encryption-setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.access_token}` },
+        body: JSON.stringify({ encryption_salt: salt, recovery_codes_hash: JSON.stringify(codes.map(c => c)) })
+      }).catch(console.error)
     } catch (e) { setAuthError(e.message) }
     finally { setAuthLoading(false) }
   }
@@ -89,12 +106,14 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('spendscope_token')
     localStorage.removeItem('spendscope_user')
+    clearKey()
+    setEncryptionKey(null)
     setAuthToken(null)
     setAuthUser(null)
     setData([])
   }
 
-  useEffect(() => { if (!authToken) { setLoading(false); return }; fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() }).then(r => r.json()).then(j => { if (Array.isArray(j)) { setData(j.map(d => ({ ...d, _account: d._account || 'Primary' }))); setLoading(false) } else { setLoading(false) } }).catch(() => { setLoading(false) }) }, [authToken])
+  useEffect(() => { if (!authToken) { setLoading(false); return }; fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() }).then(r => r.json()).then(async j => { if (Array.isArray(j)) { const key = await getEncryptionKey(); let processed = j; if (key && j.length > 0 && j[0].encrypted_data) { try { processed = await decryptTransactions(key, j.map(t => ({ iv: JSON.parse(t.encrypted_data).iv, ciphertext: JSON.parse(t.encrypted_data).ciphertext, date_iso: t.date_iso, id: t.id, import_batch_id: t.import_batch_id }))); processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id })) } catch(e) { console.error('Decryption failed:', e); processed = j } } setData(processed.map(d => ({ ...d, _account: d._account || 'Primary' }))); setLoading(false) } else { setLoading(false) } }).catch(() => { setLoading(false) }) }, [authToken])
   useEffect(() => { localStorage.setItem('spendscope_budgets', JSON.stringify(budgets)) }, [budgets])
   useEffect(() => { localStorage.setItem('spendscope_accounts', JSON.stringify(accounts)) }, [accounts])
 
@@ -224,7 +243,7 @@ function App() {
       })
   }
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!pendingImport) return
     const acctName = uploadAccountName.trim() || 'Primary'
     const kept = pendingImport.transactions.filter((_, i) => !importSelectedRows.has(i))
@@ -233,16 +252,22 @@ function App() {
     if (!accounts.find(a => a.name === acctName)) setAccounts(prev => [...prev, { id: Date.now().toString(), name: acctName }])
     setUploadStatus({ type: 'success', message: `Imported ${kept.length.toLocaleString()} transactions into "${acctName}".` })
     if (authToken) {
+      const sourceType = pendingImport.filename?.endsWith('.pdf') ? 'pdf' : 'csv'
+      let importPayload = { transactions: kept, bank_name: pendingImport.bankName, filename: pendingImport.filename, account_name: acctName, source_type: sourceType }
+      if (encryptionKey) {
+        try {
+          const encrypted = await encryptTransactions(encryptionKey, kept)
+          importPayload = {
+            transactions: encrypted.map(e => ({ date_iso: e.date_iso, encrypted_data: JSON.stringify({ iv: e.iv, ciphertext: e.ciphertext }) })),
+            encrypted: true,
+            bank_name: pendingImport.bankName, filename: pendingImport.filename, account_name: acctName, source_type: sourceType
+          }
+        } catch (e) { console.error('Encryption failed, sending unencrypted:', e) }
+      }
       fetch(`${API_BASE}/api/transactions/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          transactions: kept,
-          bank_name: pendingImport.bankName,
-          filename: pendingImport.filename,
-          account_name: acctName,
-          source_type: pendingImport.filename?.endsWith('.pdf') ? 'pdf' : 'csv',
-        })
+        body: JSON.stringify(importPayload)
       }).catch(console.error)
     }
     setPendingImport(null)
@@ -294,6 +319,19 @@ function App() {
   if (!authToken) {
     return <AuthPages t={t} mode={mode} setMode={setMode} authPage={authPage} setAuthPage={setAuthPage} authError={authError} setAuthError={setAuthError} authLoading={authLoading} handleLogin={handleLogin} handleSignup={handleSignup} COUNTRIES={COUNTRIES} CURRENCIES={CURRENCIES} />
   }
+
+  const recoveryCodesModal = recoveryCodesShown && (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: t.card, borderRadius: '16px', padding: '32px', maxWidth: '450px', width: '90%' }}>
+        <h2 style={{ color: t.text, margin: '0 0 8px', fontSize: '20px' }}>Save Your Recovery Codes</h2>
+        <p style={{ color: t.textLight, fontSize: '13px', margin: '0 0 16px' }}>If you forget your password, these codes are the ONLY way to recover your data. Save them somewhere safe.</p>
+        <div style={{ background: t.bg, borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '15px', color: t.text, lineHeight: '2' }}>
+          {recoveryCodesShown.map((code, i) => <div key={i}>{i+1}. {code}</div>)}
+        </div>
+        <button onClick={() => setRecoveryCodesShown(null)} style={{ marginTop: '16px', width: '100%', padding: '12px', background: t.teal, color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>I've saved my recovery codes</button>
+      </div>
+    </div>
+  )
 
   if (loading) return (
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
@@ -465,6 +503,8 @@ function App() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", transition: 'background 0.4s ease' }}>
+
+      {recoveryCodesModal}
 
       {showWelcome && !loading && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>

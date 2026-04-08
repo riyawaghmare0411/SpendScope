@@ -54,6 +54,8 @@ async def signup(req: SignupRequest, db=Depends(get_db)):
         name=req.name,
         country=req.country,
         currency=req.currency,
+        encryption_salt=req.encryption_salt,
+        recovery_codes_hash=req.recovery_codes_hash,
     )
     db.add(user)
     await db.commit()
@@ -106,6 +108,7 @@ async def get_me(current_user=Depends(get_current_user), db=Depends(get_db)):
         "name": user.name,
         "country": user.country,
         "currency": user.currency,
+        "encryption_salt": user.encryption_salt,
     }
 
 
@@ -132,6 +135,49 @@ async def update_me(request: Request, current_user=Depends(get_current_user), db
     }
 
 
+@app.post("/api/auth/encryption-setup")
+async def encryption_setup(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Set up encryption for an existing user (migration path)."""
+    data = await request.json()
+    encryption_salt = data.get("encryption_salt")
+    recovery_codes_hash = data.get("recovery_codes_hash")
+    if not encryption_salt:
+        raise HTTPException(400, "encryption_salt is required")
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.encryption_salt:
+        raise HTTPException(409, "Encryption already configured for this user")
+
+    user.encryption_salt = encryption_salt
+    user.recovery_codes_hash = recovery_codes_hash
+    await db.commit()
+    return {"status": "encryption_configured"}
+
+
+@app.post("/api/auth/verify-recovery")
+async def verify_recovery(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Verify a recovery code against stored hashes."""
+    data = await request.json()
+    code_hash = data.get("recovery_code_hash")
+    if not code_hash:
+        raise HTTPException(400, "recovery_code_hash is required")
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if not user.recovery_codes_hash:
+        raise HTTPException(404, "No recovery codes configured")
+
+    stored_hashes = json.loads(user.recovery_codes_hash)
+    if code_hash in stored_hashes:
+        return {"valid": True}
+    return {"valid": False}
+
+
 # --- Transaction Endpoints ---
 
 @app.get("/api/transactions")
@@ -154,6 +200,7 @@ async def get_transactions(user=Depends(get_optional_user), db=Depends(get_db)):
             "balance": float(t.balance) if t.balance else None,
             "direction": t.direction,
             "is_redacted": t.is_redacted,
+            "encrypted_data": t.encrypted_data,
             "category_source": t.category_source,
             "id": str(t.id),
             "import_batch_id": str(t.import_batch_id) if t.import_batch_id else None,
@@ -196,6 +243,7 @@ async def import_transactions(request: Request, current_user=Depends(get_current
     await db.flush()
 
     # Insert transactions
+    encrypted = data.get("encrypted", False)
     for t in data.get("transactions", []):
         from datetime import date as date_type
         try:
@@ -203,22 +251,38 @@ async def import_transactions(request: Request, current_user=Depends(get_current
         except (ValueError, KeyError):
             continue
 
-        amount = float(t.get("amount", 0) or t.get("money_out", 0) or t.get("money_in", 0))
-        txn = TxnModel(
-            import_batch_id=batch.id,
-            account_id=account.id,
-            user_id=user_id,
-            date=tx_date,
-            description=t.get("description", ""),
-            merchant=t.get("merchant", ""),
-            category=t.get("category", ""),
-            type=t.get("type", ""),
-            amount=round(amount, 2),
-            balance=round(float(t.get("balance", 0) or 0), 2) if t.get("balance") else None,
-            direction=t.get("direction", "OUT"),
-            is_redacted=t.get("is_redacted", False),
-            category_source=t.get("category_source", "auto"),
-        )
+        if encrypted:
+            # Encrypted mode: store only date + encrypted blob
+            enc_blob = t.get("encrypted_data")
+            if not enc_blob:
+                continue
+            txn = TxnModel(
+                import_batch_id=batch.id,
+                account_id=account.id,
+                user_id=user_id,
+                date=tx_date,
+                description="[encrypted]",
+                amount=0,
+                direction="OUT",
+                encrypted_data=json.dumps(enc_blob) if isinstance(enc_blob, dict) else enc_blob,
+            )
+        else:
+            amount = float(t.get("amount", 0) or t.get("money_out", 0) or t.get("money_in", 0))
+            txn = TxnModel(
+                import_batch_id=batch.id,
+                account_id=account.id,
+                user_id=user_id,
+                date=tx_date,
+                description=t.get("description", ""),
+                merchant=t.get("merchant", ""),
+                category=t.get("category", ""),
+                type=t.get("type", ""),
+                amount=round(amount, 2),
+                balance=round(float(t.get("balance", 0) or 0), 2) if t.get("balance") else None,
+                direction=t.get("direction", "OUT"),
+                is_redacted=t.get("is_redacted", False),
+                category_source=t.get("category_source", "auto"),
+            )
         db.add(txn)
 
     await db.commit()

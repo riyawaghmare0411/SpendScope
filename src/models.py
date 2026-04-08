@@ -23,6 +23,8 @@ class User(Base):
     oauth_id: Mapped[Optional[str]] = mapped_column(sa.String(255))
     country: Mapped[Optional[str]] = mapped_column(sa.String(100))
     currency: Mapped[str] = mapped_column(sa.String(10), default="USD")
+    encryption_salt: Mapped[Optional[str]] = mapped_column(sa.String(64), nullable=True)
+    recovery_codes_hash: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -84,6 +86,7 @@ class Transaction(Base):
     balance: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
     direction: Mapped[str] = mapped_column(sa.String(10), default="debit")
     is_redacted: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    encrypted_data: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     category_source: Mapped[str] = mapped_column(sa.String(50), default="auto")
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)

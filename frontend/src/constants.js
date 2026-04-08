@@ -138,6 +138,7 @@ export const NAV = [
   { id: 'transactions', icon: '\u2630', label: 'Transactions' },
   { id: 'calendar', icon: '\uD83D\uDCC5', label: 'Calendar' },
   { id: 'insights', icon: '\uD83D\uDCA1', label: 'Insights' },
+  { id: 'coach', icon: '\uD83E\uDDE0', label: 'Coach' },
   { id: 'rules', icon: '\u2699', label: 'Rules' },
   { id: 'upload', icon: '\u2B06', label: 'Upload' },
 ]

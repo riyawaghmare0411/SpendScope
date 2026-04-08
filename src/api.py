@@ -13,6 +13,7 @@ from src.auth import (
     get_current_user, get_optional_user,
     SignupRequest, LoginRequest, TokenResponse
 )
+from src.ai_coach import generate_plan
 
 app = FastAPI(title="SpendScope API")
 
@@ -409,6 +410,59 @@ async def upload_csv(file: UploadFile = File(...)):
         "has_redactions": len(redacted) > 0 if redacted else False,
         "filename": file.filename,
     }
+
+
+# --- AI Coaching Endpoint ---
+
+@app.post("/api/coaching/plan")
+async def get_coaching_plan(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
+    """Generate a personalized financial coaching plan from user's transactions."""
+    user_id = uuid.UUID(user["user_id"])
+
+    # Fetch user record for currency + name
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user_row = user_result.scalar_one_or_none()
+    if not user_row:
+        raise HTTPException(404, "User not found")
+
+    # Fetch transactions
+    txn_result = await db.execute(
+        select(TxnModel).where(TxnModel.user_id == user_id).order_by(TxnModel.date.desc())
+    )
+    txns = txn_result.scalars().all()
+    if not txns:
+        raise HTTPException(400, "No transactions found. Import a bank statement first.")
+
+    transactions = [{
+        "date_iso": t.date.isoformat(),
+        "description": t.description,
+        "merchant": t.merchant,
+        "category": t.category,
+        "type": t.type or "",
+        "money_in": float(t.amount) if t.direction == "IN" else 0,
+        "money_out": float(t.amount) if t.direction == "OUT" else 0,
+        "balance": float(t.balance) if t.balance else None,
+        "direction": t.direction,
+    } for t in txns if not t.is_redacted and not t.encrypted_data]
+
+    if not transactions:
+        raise HTTPException(400, "No unencrypted transactions available for coaching.")
+
+    # Optional debt info from request body
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    debt_info = body.get("debt_info")
+
+    result = await generate_plan(
+        transactions=transactions,
+        user_currency=user_row.currency or "$",
+        user_name=user_row.name or "",
+        debt_info=debt_info,
+    )
+    return result
 
 
 # --- Category Rules Endpoints ---

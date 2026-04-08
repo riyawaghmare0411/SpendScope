@@ -13,6 +13,7 @@ import { MerchantsPage } from './components/MerchantsPage'
 import { TransactionsPage } from './components/TransactionsPage'
 import { CalendarPage } from './components/CalendarPage'
 import { InsightsPage } from './components/InsightsPage'
+import { CoachPage } from './components/CoachPage'
 import RulesPage from './components/RulesPage'
 import UploadPage from './components/UploadPage'
 import Sidebar from './components/Sidebar'
@@ -533,7 +534,7 @@ function App() {
         <div style={{ position: 'relative', zIndex: 1, padding: '32px 36px' }}>
           <div style={{ marginBottom: '32px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 700, color: t.text, margin: 0 }}>
-              {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'rules' && 'Category Rules'}{page === 'upload' && 'Upload Statement'}
+              {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'coach' && 'AI Money Coach'}{page === 'rules' && 'Category Rules'}{page === 'upload' && 'Upload Statement'}
             </h1>
             <p style={{ color: t.textMuted, fontSize: '13px', margin: '4px 0 0' }}>{dateRangeStr}{globalRange !== 'All' ? ` (${globalRange})` : ''}</p>
           </div>
@@ -560,6 +561,10 @@ function App() {
 
           {page === 'insights' && (
             <InsightsPage t={t} mode={mode} currency={currency} lc={lc} dc={dc} anomalies={anomalies} streaks={streaks} savingsOpportunities={savingsOpportunities} savingsReduction={savingsReduction} setSavingsReduction={setSavingsReduction} daySpan={daySpan} peerCompData={peerCompData} dynamicInsights={dynamicInsights} />
+          )}
+
+          {page === 'coach' && (
+            <CoachPage t={t} currency={currency} data={data} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} userName={userName || (authUser && authUser.name) || ''} />
           )}
 
           {page === 'rules' && (

@@ -2,10 +2,8 @@ import { useState, useEffect } from 'react'
 import { fmt } from '../constants'
 
 export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE, userName }) => {
-  // Cache plan in sessionStorage so it persists across page switches (not tab closes)
-  const [plan, setPlan] = useState(() => {
-    try { const cached = sessionStorage.getItem('spendscope_coach_plan'); return cached ? JSON.parse(cached) : null } catch { return null }
-  })
+  // No caching -- always fetch fresh plan when page loads to avoid stale data
+  const [plan, setPlan] = useState(null)
   const [planLoading, setPlanLoading] = useState(false)
   const [planError, setPlanError] = useState(null)
 
@@ -20,13 +18,12 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE,
       })
       const result = await r.json()
       if (result.error) setPlanError(result.error)
-      else { setPlan(result); sessionStorage.setItem('spendscope_coach_plan', JSON.stringify(result)) }
+      else { setPlan(result) }
     } catch (e) { setPlanError('Could not generate plan. Try again later.') }
     finally { setPlanLoading(false) }
   }
 
-  // Only auto-fetch if no cached plan exists
-  useEffect(() => { if (!plan) fetchPlan() }, [authToken, data.length])
+  useEffect(() => { fetchPlan() }, [authToken, data.length])
 
   const card = { background: t.card, borderRadius: '16px', boxShadow: t.cardShadow, padding: '24px 28px', position: 'relative', overflow: 'hidden' }
   const cardDark = { ...card, background: t.cardAlt, color: t.cardAltText }

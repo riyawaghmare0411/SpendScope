@@ -78,26 +78,21 @@ export const SAVINGS_TIPS = {
   'Utilities': 'Switch off unused lights and appliances',
 }
 
+// Generic patterns only -- no country-specific merchant names.
+// AI handles specific merchants via /api/categorize-ai.
+// These are UNIVERSAL keywords that always indicate a category regardless of country.
 export const MERCHANT_CATEGORIES = [
-  ['Transport', ['uber', 'lyft', 'taxi', 'bus', 'train', 'rail', 'tfl', 'south coast', 'voi', 'lime', 'bolt', 'trainpal', 'metro', 'mta', 'bart', 'wmata', 'caltrain', 'amtrak', 'greyhound', 'megabus', 'ola', 'rapido', 'grab', 'gett', 'curb', 'via', 'chariot']],
-  ['Food Delivery', ['uber eats', 'deliveroo', 'just eat', 'doordash', 'grubhub', 'postmates', 'instacart', 'gopuff', 'seamless', 'caviar', 'swiggy', 'zomato', 'foodpanda', 'talabat', 'glovo']],
-  ['Eating Out', ['greggs', 'wingstop', 'tortilla', 'chopstix', 'nandos', 'mcdonalds', 'kfc', 'subway', 'pret', 'bombay spice', 'chipotle', 'taco bell', 'wendys', 'burger king', 'five guys', 'chick-fil-a', 'popeyes', 'dominos', 'pizza hut', 'papa johns', 'ihop', 'denny', 'applebee', 'olive garden', 'chilis', 'panera', 'dunkin', 'tim horton', 'waffle house', 'sonic', 'arbys', 'jack in the box', 'raising cane', 'panda express', 'steak n shake', 'cracker barrel', 'buffalo wild wings', 'red lobster', 'outback', 'hooters', 'wetherspoon', 'wagamama', 'pizza express', 'yo sushi', 'leon', 'itsu', 'dishoom']],
-  ['Groceries', ['waitrose', 'sainsbury', 'tesco', 'asda', 'aldi', 'lidl', 'morrisons', 'co-op', 'marks&spencer', 'm&s', 'walmart', 'target', 'kroger', 'costco', 'whole foods', 'trader joe', 'safeway', 'publix', 'heb', 'meijer', 'food lion', 'giant', 'stop and shop', 'wegmans', 'sprouts', 'piggly wiggly', 'winco', 'iga', 'save-a-lot', 'big bazaar', 'dmart', 'reliance fresh', 'more supermarket', 'spar', 'carrefour', 'intermarche', 'leclerc', 'casino', 'monoprix', 'rewe', 'edeka', 'penny', 'netto', 'kaufland', 'maxima', 'biedronka']],
-  ['Shopping', ['shein', 'zara', 'primark', 'amazon', 'asos', 'body shop', 'tk maxx', 'hm', 'next', 'walmart', 'target', 'bestbuy', 'best buy', 'home depot', 'lowes', 'ikea', 'wayfair', 'etsy', 'ebay', 'wish', 'aliexpress', 'flipkart', 'myntra', 'ajio', 'snapdeal', 'nike', 'adidas', 'uniqlo', 'gap', 'old navy', 'macys', 'nordstrom', 'marshalls', 'ross', 'burlington', 'dollar general', 'dollar tree', 'family dollar', 'big lots', 'five below', 'bath body', 'sephora', 'ulta', 'cvs', 'walgreens', 'rite aid', 'boots', 'superdrug']],
-  ['Coffee & Cafe', ['starbucks', 'costa', 'caffe nero', 'pret a manger', 'dunkin', 'tim horton', 'peet', 'blue bottle', 'philz', 'caribou', 'dutch bros', 'mccafe', 'coffee bean', 'lavazza', 'illy', 'greggs']],
-  ['Subscriptions', ['google one', 'canva', 'apple.com/bill', 'netflix', 'spotify', 'disney', 'voxi', 'three', 'ee', 'giffgaff', 'hulu', 'hbo', 'paramount', 'peacock', 'youtube premium', 'apple tv', 'amazon prime', 'audible', 'kindle', 'dropbox', 'icloud', 'microsoft 365', 'adobe', 'chatgpt', 'openai', 'anthropic', 'notion', 'figma', 'slack', 'zoom', 'grammarly', 'nordvpn', 'expressvpn', 'crunchyroll', 'twitch']],
-  ['Rent', ['anthem homes', 'rent', 'letting', 'housing', 'apartment', 'lease', 'landlord', 'property management', 'real estate', 'mortgage', 'zillow', 'trulia', 'realtor']],
-  ['Utilities', ['electric', 'gas', 'water', 'sewage', 'trash', 'waste', 'energy', 'power', 'utility', 'edf', 'british gas', 'octopus energy', 'bulb', 'sse', 'scottish power', 'pg&e', 'con edison', 'duke energy', 'xcel', 'dominion', 'southern company', 'comcast', 'xfinity', 'att', 'at&t', 'verizon', 't-mobile', 'sprint', 'spectrum', 'cox', 'frontier', 'centurylink', 'virgin media', 'bt', 'sky', 'vodafone', 'o2']],
-  ['Bills', ['council tax', 'water bill', 'electric bill', 'gas bill', 'insurance', 'geico', 'state farm', 'allstate', 'progressive', 'usaa', 'nationwide', 'aviva', 'admiral', 'direct line', 'axa', 'prudential', 'phone bill', 'internet bill']],
-  ['Bank Fees', ['non-gbp', 'transaction fee', 'purch fee', 'overdraft', 'atm fee', 'maintenance fee', 'wire fee', 'nsf', 'foreign transaction', 'service charge', 'monthly fee']],
-  ['Transfers', ['remitly', 'wise', 'transferwise', 'western union', 'moneygram', 'zelle', 'venmo', 'cashapp', 'paypal', 'gpay', 'google pay', 'apple pay', 'samsung pay', 'paytm', 'phonepe', 'upi', 'mpesa', 'revolut transfer', 'bank transfer']],
-  ['Fitness', ['gym', 'puregym', 'planet fitness', 'anytime fitness', 'la fitness', 'equinox', 'orangetheory', 'crossfit', 'peloton', 'classpass', 'fitbit', 'garmin', 'nike run', 'strava', 'ymca', 'gold gym', 'crunch fitness']],
-  ['Entertainment', ['cinema', 'odeon', 'cineworld', 'amc', 'regal', 'ticketmaster', 'stubhub', 'eventbrite', 'live nation', 'spotify', 'apple music', 'youtube', 'twitch', 'steam', 'playstation', 'xbox', 'nintendo', 'epic games', 'roblox', 'ea', 'activision']],
-  ['Healthcare', ['pharmacy', 'chemist', 'hospital', 'clinic', 'doctor', 'dentist', 'optician', 'cvs pharmacy', 'walgreens pharmacy', 'rite aid pharmacy', 'boots pharmacy', 'superdrug pharmacy', 'bupa', 'nhs', 'kaiser', 'humana', 'cigna', 'aetna', 'united health', 'blue cross']],
-  ['Education', ['university', 'college', 'school', 'tuition', 'coursera', 'udemy', 'skillshare', 'masterclass', 'duolingo', 'chegg', 'pearson', 'mcgraw', 'textbook', 'student loan']],
-  ['Travel', ['airline', 'hotel', 'airbnb', 'booking.com', 'expedia', 'hotels.com', 'kayak', 'skyscanner', 'tripadvisor', 'marriott', 'hilton', 'hyatt', 'ihg', 'wyndham', 'best western', 'motel', 'hostel', 'hertz', 'enterprise', 'avis', 'budget rent', 'national car', 'turo', 'united airlines', 'delta', 'american airlines', 'southwest', 'jetblue', 'ryanair', 'easyjet', 'british airways', 'lufthansa', 'emirates']],
-  ['Income', ['salary', 'payroll', 'direct deposit', 'wages', 'pension', 'dividend', 'interest', 'refund', 'cashback', 'tax refund', 'benefit', 'stipend', 'freelance', 'invoice payment']],
-  ['Insurance', ['geico', 'state farm', 'allstate', 'progressive', 'nationwide', 'usaa', 'liberty mutual', 'farmers', 'travelers', 'aaa', 'aviva', 'admiral', 'direct line', 'axa', 'lemonade', 'root', 'metromile']],
+  ['Transport', ['uber', 'lyft', 'taxi', 'cab ', 'ride share']],
+  ['Food Delivery', ['uber eats', 'doordash', 'grubhub', 'deliveroo', 'just eat', 'swiggy', 'zomato', 'postmates', 'instacart']],
+  ['Subscriptions', ['netflix', 'spotify', 'disney', 'hulu', 'hbo', 'apple.com/bill', 'youtube premium', 'amazon prime', 'audible', 'icloud', 'dropbox', 'microsoft 365', 'adobe']],
+  ['Transfers', ['zelle', 'venmo', 'cashapp', 'paypal', 'wire transfer', 'bank transfer', 'western union', 'moneygram', 'remitly', 'wise']],
+  ['Income', ['salary', 'payroll', 'direct deposit', 'wages', 'pension', 'dividend', 'tax refund']],
+  ['Bank Fees', ['overdraft', 'atm fee', 'maintenance fee', 'nsf', 'service charge', 'monthly fee', 'transaction fee']],
+  ['Fitness', ['gym', 'fitness', 'peloton', 'crossfit']],
+  ['Healthcare', ['pharmacy', 'hospital', 'clinic', 'doctor', 'dentist']],
+  ['Education', ['university', 'college', 'school', 'tuition', 'student loan']],
+  ['Travel', ['airline', 'hotel', 'airbnb', 'booking.com', 'expedia']],
+  ['Insurance', ['insurance', ' ins ']],
 ]
 
 export const categorizeByMerchant = (merchantName) => {

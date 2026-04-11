@@ -286,8 +286,8 @@ async def categorize_merchants(merchants: list[str]) -> dict[str, str]:
     if not ANTHROPIC_API_KEY:
         return {m: "Other" for m in merchants}
 
-    # Cap at 50 merchants per call
-    merchants = merchants[:50]
+    # Cap at 15 merchants per call (garbled text causes JSON parse failures in larger batches)
+    merchants = merchants[:15]
 
     prompt = "Categorize these merchant names:\n" + "\n".join(f"- {m}" for m in merchants)
 

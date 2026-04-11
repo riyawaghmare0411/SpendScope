@@ -141,19 +141,23 @@ function App() {
   // AI-categorize any "Other" merchants, then set pending import
   const aiCategorizeAndImport = async (tagged, bankName, filename) => {
     const others = [...new Set(tagged.filter(t => t.category === 'Other').map(t => t.merchant || t.description || ''))]
-    if (others.length > 0 && others.length <= 50) {
+    if (others.length > 0) {
       try {
-        const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchants: others }) })
-        const { categories } = await r.json()
-        if (categories) {
-          tagged = tagged.map(t => {
-            if (t.category === 'Other') {
-              const key = t.merchant || t.description || ''
-              if (categories[key] && categories[key] !== 'Other') return { ...t, category: categories[key] }
-            }
-            return t
-          })
+        // Batch in groups of 15 (garbled text can cause parse issues in larger batches)
+        const allCategories = {}
+        for (let i = 0; i < others.length; i += 15) {
+          const batch = others.slice(i, i + 15)
+          const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchants: batch }) })
+          const { categories } = await r.json()
+          if (categories) Object.assign(allCategories, categories)
         }
+        tagged = tagged.map(t => {
+          if (t.category === 'Other') {
+            const key = t.merchant || t.description || ''
+            if (allCategories[key] && allCategories[key] !== 'Other') return { ...t, category: allCategories[key] }
+          }
+          return t
+        })
       } catch (e) { /* AI unavailable, keep rule-based categories */ }
     }
     setPendingImport({ transactions: tagged, bankName, filename })

@@ -13,7 +13,7 @@ from src.auth import (
     get_current_user, get_optional_user,
     SignupRequest, LoginRequest, TokenResponse
 )
-from src.ai_coach import generate_plan
+from src.ai_coach import generate_plan, categorize_merchants
 
 app = FastAPI(title="SpendScope API")
 
@@ -463,6 +463,22 @@ async def get_coaching_plan(request: Request, user=Depends(get_current_user), db
         debt_info=debt_info,
     )
     return result
+
+
+# --- AI Categorization Endpoint ---
+
+@app.post("/api/categorize-ai")
+async def categorize_ai(request: Request):
+    """Use AI to categorize unknown merchant names in bulk."""
+    body = await request.json()
+    merchants = body.get("merchants", [])
+    if not isinstance(merchants, list):
+        raise HTTPException(400, "merchants must be a list of strings")
+    if len(merchants) > 50:
+        raise HTTPException(400, "Maximum 50 merchants per request")
+
+    categories = await categorize_merchants(merchants)
+    return {"categories": categories}
 
 
 # --- Category Rules Endpoints ---

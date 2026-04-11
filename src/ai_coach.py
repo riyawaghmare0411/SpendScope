@@ -260,6 +260,80 @@ def build_coaching_prompt(summary: dict, user_currency: str = "$", user_name: st
     return "\n".join(lines)
 
 
+VALID_CATEGORIES = [
+    "Transport", "Food Delivery", "Eating Out", "Groceries", "Shopping",
+    "Coffee & Cafe", "Subscriptions", "Rent", "Bills", "Utilities",
+    "Bank Fees", "Transfers", "Fitness", "Entertainment", "Healthcare",
+    "Education", "Travel", "Insurance", "Income", "Other",
+]
+
+CATEGORIZE_SYSTEM = (
+    "You are a financial transaction categorizer. Given merchant names from bank statements, "
+    "classify each into exactly one category. Merchant names may be garbled, abbreviated, or "
+    "contain transaction codes -- use your best judgment.\n"
+    "Valid categories: " + ", ".join(VALID_CATEGORIES) + "\n"
+    "Respond with ONLY a JSON object mapping each merchant name to its category. "
+    "No markdown fences, no explanation."
+)
+
+
+async def categorize_merchants(merchants: list[str]) -> dict[str, str]:
+    """Use AI to categorize unknown merchant names. Returns {merchant: category}."""
+    if not merchants:
+        return {}
+
+    # Fallback if API not configured
+    if not ANTHROPIC_API_KEY:
+        return {m: "Other" for m in merchants}
+
+    # Cap at 50 merchants per call
+    merchants = merchants[:50]
+
+    prompt = "Categorize these merchant names:\n" + "\n".join(f"- {m}" for m in merchants)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                ANTHROPIC_URL,
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+                    "max_tokens": 1024,
+                    "system": CATEGORIZE_SYSTEM,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=30.0,
+            )
+
+        if response.status_code != 200:
+            return {m: "Other" for m in merchants}
+
+        body = response.json()
+        text = body.get("content", [{}])[0].get("text", "")
+
+        # Strip markdown code fences if present
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+
+        result = json.loads(cleaned)
+
+        # Validate: ensure all values are valid categories, default to "Other"
+        validated = {}
+        for m in merchants:
+            cat = result.get(m, "Other")
+            validated[m] = cat if cat in VALID_CATEGORIES else "Other"
+        return validated
+
+    except Exception:
+        return {m: "Other" for m in merchants}
+
+
 async def generate_plan(
     transactions: list[dict],
     user_currency: str = "$",

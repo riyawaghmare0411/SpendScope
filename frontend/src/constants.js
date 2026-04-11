@@ -78,47 +78,13 @@ export const SAVINGS_TIPS = {
   'Utilities': 'Switch off unused lights and appliances',
 }
 
-// Generic patterns only -- no country-specific merchant names.
-// AI handles specific merchants via /api/categorize-ai.
-// These are UNIVERSAL keywords that always indicate a category regardless of country.
-export const MERCHANT_CATEGORIES = [
-  ['Transport', ['uber', 'lyft', 'taxi', 'cab ', 'ride share']],
-  ['Food Delivery', ['uber eats', 'doordash', 'grubhub', 'deliveroo', 'just eat', 'swiggy', 'zomato', 'postmates', 'instacart']],
-  ['Subscriptions', ['netflix', 'spotify', 'disney', 'hulu', 'hbo', 'apple.com/bill', 'youtube premium', 'amazon prime', 'audible', 'icloud', 'dropbox', 'microsoft 365', 'adobe']],
-  ['Transfers', ['zelle', 'venmo', 'cashapp', 'paypal', 'wire transfer', 'bank transfer', 'western union', 'moneygram', 'remitly', 'wise']],
-  ['Income', ['salary', 'payroll', 'direct deposit', 'wages', 'pension', 'dividend', 'tax refund']],
-  ['Bank Fees', ['overdraft', 'atm fee', 'maintenance fee', 'nsf', 'service charge', 'monthly fee', 'transaction fee']],
-  ['Fitness', ['gym', 'fitness', 'peloton', 'crossfit']],
-  ['Healthcare', ['pharmacy', 'hospital', 'clinic', 'doctor', 'dentist']],
-  ['Education', ['university', 'college', 'school', 'tuition', 'student loan']],
-  ['Travel', ['airline', 'hotel', 'airbnb', 'booking.com', 'expedia']],
-  ['Insurance', ['insurance', ' ins ']],
-]
+// No hardcoded merchant rules. All categorization is done by AI via /api/categorize-ai.
+export const MERCHANT_CATEGORIES = []
 
-export const categorizeByMerchant = (merchantName) => {
-  const lower = (merchantName || '').toLowerCase()
-  for (const [cat, keywords] of MERCHANT_CATEGORIES) {
-    if (keywords.some(kw => lower.includes(kw))) return cat
-  }
-  return 'Other'
-}
+export const categorizeByMerchant = () => 'Other'
 
-export const categorizeWithRules = (merchant) => {
-  const learned = JSON.parse(localStorage.getItem('spendscope_learned_rules') || '[]')
-  const m = (merchant || '').toLowerCase()
-  for (const rule of learned) {
-    if (m.includes(rule.merchant.toLowerCase())) return rule.category
-  }
-  const bulk = JSON.parse(localStorage.getItem('spendscope_bulk_rules') || '[]')
-  for (const rule of [...bulk].sort((a, b) => (b.priority || 0) - (a.priority || 0))) {
-    const val = rule.match_value.toLowerCase()
-    if (rule.match_type === 'exact' && m === val) return rule.category
-    if (rule.match_type === 'starts_with' && m.startsWith(val)) return rule.category
-    if (rule.match_type === 'contains' && m.includes(val)) return rule.category
-    if (rule.match_type === 'regex') { try { if (new RegExp(val, 'i').test(m)) return rule.category } catch(e) {} }
-  }
-  return categorizeByMerchant(merchant)
-}
+// All categorization is AI-powered. This is a no-op placeholder for backward compatibility.
+export const categorizeWithRules = () => 'Other'
 
 export const PEER_BENCHMARKS = {
   'Housing': 30, 'Rent': 30, 'Groceries': 12, 'Grocery': 12, 'Transport': 10,

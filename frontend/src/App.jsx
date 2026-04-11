@@ -138,6 +138,28 @@ function App() {
 
   const ALL_CATEGORIES = [...new Set(MERCHANT_CATEGORIES.map(([cat]) => cat).concat(['Other', 'Income', 'Salary', 'Cash', 'Coffee & Cafe', 'Entertainment', 'Electronics', 'Healthcare', 'Clothing', 'Fitness', 'Housing', 'Travel', 'Education', 'Utilities', 'Savings', 'Professional', 'Bills', 'Credit', 'Debit']))].sort()
 
+  // AI-categorize any "Other" merchants, then set pending import
+  const aiCategorizeAndImport = async (tagged, bankName, filename) => {
+    const others = [...new Set(tagged.filter(t => t.category === 'Other').map(t => t.merchant || t.description || ''))]
+    if (others.length > 0 && others.length <= 50) {
+      try {
+        const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchants: others }) })
+        const { categories } = await r.json()
+        if (categories) {
+          tagged = tagged.map(t => {
+            if (t.category === 'Other') {
+              const key = t.merchant || t.description || ''
+              if (categories[key] && categories[key] !== 'Other') return { ...t, category: categories[key] }
+            }
+            return t
+          })
+        }
+      } catch (e) { /* AI unavailable, keep rule-based categories */ }
+    }
+    setPendingImport({ transactions: tagged, bankName, filename })
+    setUploadStatus(null)
+  }
+
   const handleFileUpload = (file) => {
     if (!file) return; const isPDF = file.name.toLowerCase().endsWith('.pdf'); const isCSV = file.name.toLowerCase().endsWith('.csv'); if (!isPDF && !isCSV) { setUploadStatus({ type: 'error', message: 'Please upload a CSV or PDF file.' }); return }
     setUploadStatus({ type: 'loading', message: isPDF ? 'Processing PDF...' : 'Parsing CSV...' })
@@ -150,8 +172,8 @@ function App() {
           const transactions = Array.isArray(result.transactions) ? result.transactions : []
           if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in PDF.' }); return }
           const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
-          setPendingImport({ transactions: tagged, bankName: result.bank_name || '', filename: file.name })
-          setUploadStatus(null)
+          setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
+          aiCategorizeAndImport(tagged, result.bank_name || '', file.name)
         })
         .catch(err => { setUploadStatus({ type: 'error', message: `PDF processing failed: ${err.message}. Make sure the backend is running.` }) })
       return
@@ -171,8 +193,8 @@ function App() {
         const transactions = result.transactions || []
         if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in CSV.' }); return }
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
-        setPendingImport({ transactions: tagged, bankName: result.bank_name || '', filename: file.name })
-        setUploadStatus(null)
+        setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
+        aiCategorizeAndImport(tagged, result.bank_name || '', file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -194,8 +216,8 @@ function App() {
               return { date_iso: dateISO, description: merchantName, merchant: merchantName, category: needsSmartCat ? categorizeWithRules(merchantName) : (row[cols.category] || 'Other'), type: 'DEB', money_in: dir === 'IN' ? (amountIn || Math.abs(amountOut)) : 0, money_out: dir === 'OUT' ? (amountOut || Math.abs(amountIn)) : 0, balance: parseFloat(row[cols.balance]) || 0, direction: dir }
             }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
             if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found in CSV.' }); return }
-            setPendingImport({ transactions: mapped, bankName: '', filename: file.name })
-            setUploadStatus(null)
+            setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
+            aiCategorizeAndImport(mapped, '', file.name)
           },
           error: (err) => { setUploadStatus({ type: 'error', message: `Failed to read file: ${err.message}` }) }
         })
@@ -217,9 +239,9 @@ function App() {
         const transactions = result.transactions || []
         if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found with this mapping.' }); return }
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
-        setPendingImport({ transactions: tagged, bankName: result.bank_name || mapperBankName, filename: file.name })
         setShowColumnMapper(null)
-        setUploadStatus(null)
+        setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
+        aiCategorizeAndImport(tagged, result.bank_name || mapperBankName, file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -235,9 +257,9 @@ function App() {
               return { date_iso: dateISO, description: merchantName, merchant: merchantName, category: categorizeWithRules(merchantName), type: 'DEB', money_in: dir === 'IN' ? (amtIn || Math.abs(amtOut)) : 0, money_out: dir === 'OUT' ? (amtOut || Math.abs(amtIn)) : 0, balance: parseFloat(row[mapping.balance]) || 0, direction: dir }
             }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
             if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found with this mapping.' }); return }
-            setPendingImport({ transactions: mapped, bankName: mapperBankName, filename: file.name })
             setShowColumnMapper(null)
-            setUploadStatus(null)
+            setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
+            aiCategorizeAndImport(mapped, mapperBankName, file.name)
           },
           error: () => setUploadStatus({ type: 'error', message: 'Failed to parse file with mapping.' })
         })

@@ -16,6 +16,34 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
+CURRENCY_MAP = {
+    "USD": "$", "GBP": "\u00a3", "EUR": "\u20ac", "INR": "\u20b9", "JPY": "\u00a5",
+    "AUD": "A$", "CAD": "C$", "CHF": "CHF", "CNY": "\u00a5", "KRW": "\u20a9",
+    "GEL": "\u20be", "BRL": "R$", "MXN": "MX$", "SGD": "S$", "HKD": "HK$",
+}
+
+def resolve_currency(user_currency: str, transactions: list[dict]) -> str:
+    """Detect actual currency from transaction data, fall back to user profile."""
+    # If user_currency is already a symbol, use it
+    if user_currency in ("$", "\u00a3", "\u20ac", "\u20b9", "\u00a5", "A$", "C$"):
+        return user_currency
+    # Map currency code to symbol
+    symbol = CURRENCY_MAP.get(user_currency.upper(), None)
+    if symbol:
+        return symbol
+    # Try to detect from transaction descriptions
+    for tx in transactions[:20]:
+        desc = (tx.get("description", "") or "").lower()
+        if any(w in desc for w in ["gbp", "sterling", "\u00a3"]):
+            return "\u00a3"
+        if any(w in desc for w in ["usd", "dollar", "$"]):
+            return "$"
+        if any(w in desc for w in ["eur", "euro", "\u20ac"]):
+            return "\u20ac"
+        if any(w in desc for w in ["inr", "rupee", "\u20b9"]):
+            return "\u20b9"
+    return "$"
+
 SYSTEM_PROMPT = (
     "You are SpendScope, a personal financial coach. You give direct, actionable advice. "
     "Be specific with numbers. Be encouraging but honest. "
@@ -241,6 +269,7 @@ async def generate_plan(
     """
     Main entry point: takes transactions, returns a structured coaching plan.
     Calls Anthropic API with anonymized data.
+    Resolves currency from transaction data if user profile currency doesn't match.
     Returns structured JSON plan.
     """
     if not ANTHROPIC_API_KEY:
@@ -249,11 +278,14 @@ async def generate_plan(
     if not transactions:
         return {"error": "No transactions to analyze.", "plan": None}
 
+    # Resolve currency: detect from transactions if profile currency is a code
+    resolved_currency = resolve_currency(user_currency, transactions)
+
     summary = anonymize_transactions(transactions)
     if debt_info:
         summary["debt_info"] = debt_info
 
-    prompt = build_coaching_prompt(summary, user_currency, user_name)
+    prompt = build_coaching_prompt(summary, resolved_currency, user_name)
 
     try:
         async with httpx.AsyncClient() as client:

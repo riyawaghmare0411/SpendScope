@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv()  # Load .env file - must be before other imports that use env vars
+load_dotenv(override=True)  # Load .env file - must be before other imports that use env vars
 
 from fastapi import FastAPI, File, Form, UploadFile, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

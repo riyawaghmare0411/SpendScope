@@ -74,34 +74,38 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE,
     )}
 
     {/* Plan loaded */}
-    {!planLoading && !planError && plan && (<>
+    {!planLoading && !planError && plan && (() => {
+      // API returns { error, plan: { summary, daily_budget, strategy, risks, ... }, summary: { period, total_income, ... } }
+      const p = plan.plan || plan
+      const strategies = p.strategy || p.strategies || []
+      const risks = p.risks || []
+      return (<>
       {/* Summary */}
       <div style={{ ...cardDark, marginBottom: '20px', padding: '28px 32px', background: `linear-gradient(135deg, ${t.cardAlt}, ${t.tealDeep}90)` }}>
         <p style={{ ...sectionTitle, color: '#8FA3B0' }}>Summary</p>
-        <p style={{ fontSize: '16px', fontWeight: 500, color: t.cardAltText, margin: 0, lineHeight: '1.6' }}>{plan.summary}</p>
+        <p style={{ fontSize: '16px', fontWeight: 500, color: t.cardAltText, margin: 0, lineHeight: '1.6' }}>{p.summary || ''}</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
         {/* Daily Budget */}
         <div style={{ ...card, textAlign: 'center', padding: '32px 28px' }}>
           <p style={sectionTitle}>Daily Budget</p>
-          <p style={{ fontSize: '42px', fontWeight: 700, color: t.teal, margin: '8px 0 4px', letterSpacing: '-1px' }}>{currency}{plan.daily_budget != null ? fmt(plan.daily_budget, 0) : '--'}<span style={{ fontSize: '18px', fontWeight: 500, color: t.textMuted }}>/day</span></p>
-          {plan.daily_budget_note && <p style={{ fontSize: '12px', color: t.textMuted, margin: 0 }}>{plan.daily_budget_note}</p>}
+          <p style={{ fontSize: '42px', fontWeight: 700, color: t.teal, margin: '8px 0 4px', letterSpacing: '-1px' }}>{currency}{p.daily_budget != null ? fmt(p.daily_budget, 0) : '--'}<span style={{ fontSize: '18px', fontWeight: 500, color: t.textMuted }}>/day</span></p>
         </div>
 
         {/* Savings Tip */}
         <div style={{ ...card }}>
           <p style={sectionTitle}>&#x1F4A1; Savings Tip</p>
-          <p style={{ fontSize: '15px', fontWeight: 500, color: t.text, margin: 0, lineHeight: '1.6' }}>{plan.savings_tip || 'Keep tracking your spending to unlock personalized tips.'}</p>
+          <p style={{ fontSize: '15px', fontWeight: 500, color: t.text, margin: 0, lineHeight: '1.6' }}>{p.savings_tip || 'Keep tracking your spending to unlock personalized tips.'}</p>
         </div>
       </div>
 
       {/* Strategy */}
-      {plan.strategies && plan.strategies.length > 0 && (
+      {strategies.length > 0 && (
         <div style={{ ...card, marginBottom: '20px' }}>
           <p style={sectionTitle}>&#x1F3AF; Strategy</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {plan.strategies.map((tip, i) => (
+            {strategies.map((tip, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                 <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: `${t.teal}15`, color: t.teal, fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>{i + 1}</div>
                 <p style={{ fontSize: '14px', color: t.text, margin: 0, lineHeight: '1.5' }}>{tip}</p>
@@ -113,11 +117,11 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE,
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
         {/* Risks */}
-        {plan.risks && plan.risks.length > 0 && (
+        {risks.length > 0 && (
           <div style={{ ...card, borderLeft: `3px solid ${t.red}` }}>
             <p style={sectionTitle}>&#x26A0; Risks</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {plan.risks.map((risk, i) => (
+              {risks.map((risk, i) => (
                 <p key={i} style={{ fontSize: '13px', color: t.text, margin: 0, lineHeight: '1.5', paddingLeft: '8px' }}>{risk}</p>
               ))}
             </div>
@@ -125,20 +129,20 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE,
         )}
 
         {/* Debt Progress */}
-        {plan.debt_advice && (
+        {p.debt_advice && (
           <div style={{ ...card, borderLeft: `3px solid ${t.sand}` }}>
             <p style={sectionTitle}>&#x1F4B3; Debt Progress</p>
-            <p style={{ fontSize: '13px', color: t.text, margin: 0, lineHeight: '1.5' }}>{plan.debt_advice}</p>
+            <p style={{ fontSize: '13px', color: t.text, margin: 0, lineHeight: '1.5' }}>{p.debt_advice}</p>
           </div>
         )}
       </div>
 
       {/* Encouragement */}
-      {plan.encouragement && (
+      {p.encouragement && (
         <div style={{ textAlign: 'center', padding: '24px 20px', marginTop: '8px' }}>
-          <p style={{ fontSize: '15px', fontWeight: 500, color: t.teal, margin: 0, fontStyle: 'italic' }}>{plan.encouragement}</p>
+          <p style={{ fontSize: '15px', fontWeight: 500, color: t.teal, margin: 0, fontStyle: 'italic' }}>{p.encouragement}</p>
         </div>
       )}
-    </>)}
+    </>)})()}
   </>)
 }

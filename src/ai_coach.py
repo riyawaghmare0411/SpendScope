@@ -55,7 +55,8 @@ SYSTEM_PROMPT = (
     "debt_advice (string or null), "
     "savings_tip (string), "
     "encouragement (1 sentence motivational). "
-    "Use the user's currency symbol. Respond ONLY with valid JSON, no markdown fences."
+    "Use the user's currency symbol. Respond ONLY with valid JSON, no markdown fences. "
+    "Keep each strategy tip to 1-2 short sentences maximum. Be direct and punchy, not verbose."
 )
 
 
@@ -400,3 +401,57 @@ async def generate_plan(
         return {"error": "AI returned an unparseable response. Please try again.", "plan": None}
     except Exception as e:
         return {"error": f"AI coaching failed: {str(e)}", "plan": None}
+
+
+async def generate_plan_stream(transactions, user_currency="$", user_name="", debt_info=None):
+    """Stream coaching plan tokens as they arrive from Anthropic API."""
+    if not ANTHROPIC_API_KEY:
+        yield {"error": "AI coaching not configured."}
+        return
+    if not transactions:
+        yield {"error": "No transactions to analyze."}
+        return
+
+    resolved_currency = resolve_currency(user_currency, transactions)
+    summary = anonymize_transactions(transactions)
+    if debt_info:
+        summary["debt_info"] = debt_info
+    prompt = build_coaching_prompt(summary, resolved_currency, user_name)
+
+    accumulated = ""
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream("POST", ANTHROPIC_URL,
+                headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": ANTHROPIC_MODEL, "max_tokens": 1000, "system": SYSTEM_PROMPT, "messages": [{"role": "user", "content": prompt}], "stream": True},
+                timeout=45.0
+            ) as response:
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data)
+                        if event.get("type") == "content_block_delta":
+                            text = event.get("delta", {}).get("text", "")
+                            if text:
+                                accumulated += text
+                                yield {"token": text}
+                    except json.JSONDecodeError:
+                        continue
+
+        # Parse accumulated JSON
+        clean = accumulated.strip()
+        if clean.startswith("```"): clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
+        if clean.endswith("```"): clean = clean[:-3]
+        clean = clean.strip()
+
+        try:
+            plan = json.loads(clean)
+            yield {"done": True, "plan": plan, "summary": summary}
+        except json.JSONDecodeError:
+            yield {"done": True, "plan": None, "raw": accumulated, "summary": summary}
+    except Exception as e:
+        yield {"error": str(e), "partial": accumulated}

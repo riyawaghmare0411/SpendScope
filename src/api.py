@@ -2,6 +2,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)  # Load .env file - must be before other imports that use env vars
 
 from fastapi import FastAPI, File, Form, UploadFile, Request, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+import asyncio
+import time as _time
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 import json, os, re, uuid
@@ -13,7 +16,7 @@ from src.auth import (
     get_current_user, get_optional_user,
     SignupRequest, LoginRequest, TokenResponse
 )
-from src.ai_coach import generate_plan, categorize_merchants
+from src.ai_coach import generate_plan, generate_plan_stream, categorize_merchants
 
 app = FastAPI(title="SpendScope API")
 
@@ -28,6 +31,9 @@ app.add_middleware(
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+_coach_cache: dict[str, tuple[dict, float]] = {}
+COACH_CACHE_TTL = 3600  # 1 hour
 
 
 @app.on_event("startup")
@@ -287,6 +293,7 @@ async def import_transactions(request: Request, current_user=Depends(get_current
         db.add(txn)
 
     await db.commit()
+    _coach_cache.pop(str(user_id), None)
 
     return {
         "status": "imported",
@@ -463,6 +470,50 @@ async def get_coaching_plan(request: Request, user=Depends(get_current_user), db
         debt_info=debt_info,
     )
     return result
+
+
+
+@app.get("/api/coaching/plan-cached")
+async def get_cached_plan(user=Depends(get_current_user)):
+    """Return cached coaching plan if fresh."""
+    cache_key = str(uuid.UUID(user["user_id"]))
+    if cache_key in _coach_cache:
+        plan_data, cached_at = _coach_cache[cache_key]
+        if _time.time() - cached_at < COACH_CACHE_TTL:
+            return {"cached": True, "cached_at": cached_at, **plan_data}
+    raise HTTPException(404, "No cached plan")
+
+
+@app.post("/api/coaching/plan-stream")
+async def stream_coaching_plan(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
+    """Stream coaching plan tokens via SSE."""
+    user_id = uuid.UUID(user["user_id"])
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user_row = user_result.scalar_one_or_none()
+    if not user_row:
+        raise HTTPException(404, "User not found")
+    result = await db.execute(select(TxnModel).where(TxnModel.user_id == user_id))
+    txns = result.scalars().all()
+    transactions = [{"date_iso": str(t.date), "description": t.description or "", "merchant": t.merchant or "", "category": t.category or "Other", "type": t.type or "", "amount": float(t.amount or 0), "money_in": float(t.amount) if t.direction == "IN" else 0, "money_out": float(t.amount) if t.direction != "IN" else 0, "balance": float(t.balance) if t.balance else None, "direction": t.direction} for t in txns if not t.is_redacted and not t.encrypted_data]
+
+    if not transactions:
+        async def empty():
+            yield f"data: {json.dumps({'error': 'No transactions'})}\n\n"
+        return StreamingResponse(empty(), media_type="text/event-stream")
+
+    body = {}
+    try: body = await request.json()
+    except: pass
+
+    async def event_stream():
+        plan_result = None
+        async for chunk in generate_plan_stream(transactions, user_row.currency or "$", user_row.name or "", body.get("debt_info")):
+            if "done" in chunk and chunk["done"]:
+                plan_result = chunk
+                _coach_cache[str(user_id)] = (chunk, _time.time())
+            yield f"data: {json.dumps(chunk)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # --- AI Categorization Endpoint ---

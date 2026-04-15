@@ -21,7 +21,7 @@ import ProfileModal from './components/ProfileModal'
 
 // ========== MAIN APP ==========
 function App() {
-  const [data, setData] = useState([]), [loading, setLoading] = useState(true), [page, setPage] = useState('overview'), [mode, setMode] = useState('light')
+  const [data, setData] = useState([]), [loading, setLoading] = useState(true), [page, setPage] = useState('overview'), [mode, setMode] = useState('dark')
   const [searchTerm, setSearchTerm] = useState(''), [filterCat, setFilterCat] = useState('All'), [dragOver, setDragOver] = useState(false), [insightsSeen, setInsightsSeen] = useState(false)
   const [userName, setUserName] = useState(() => localStorage.getItem('spendscope_name') || ''), [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('spendscope_name'))
   const [currency, setCurrency] = useState('$'), [chartRange, setChartRange] = useState('All'), [globalRange, setGlobalRange] = useState('All')
@@ -525,7 +525,7 @@ function App() {
     doc.save(`SpendScope_Report_${new Date().toISOString().slice(0, 10)}.pdf`)
   }
 
-  const lc = { background: t.card, borderRadius: '24px', border: `1px solid ${t.border}`, boxShadow: t.cardShadow, padding: '24px', position: 'relative', overflow: 'hidden' }
+  const lc = { background: t.card, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderRadius: '20px', border: `1px solid ${t.border}`, boxShadow: t.cardShadow, padding: '24px', position: 'relative', overflow: 'hidden' }
   const dc = { ...lc, background: t.cardAlt, border: `1px solid rgba(255,255,255,0.08)` }
 
   return (

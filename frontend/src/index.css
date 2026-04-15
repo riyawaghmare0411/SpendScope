@@ -1,10 +1,11 @@
 @import "tailwindcss";
-```
+@import "./styles/theme.css";
 
-Save with **Ctrl + S**.
-
-**Step 3: Copy your data into the frontend.**
-
-The React app needs access to the transaction data. In your second terminal (the one not running the dev server), type:
-```
-copy ..\data\processed\transactions_frontend.json public\demo_data.json
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  margin: 0;
+  background: #0a0e1a;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

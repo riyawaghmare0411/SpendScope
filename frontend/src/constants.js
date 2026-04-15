@@ -3,39 +3,41 @@ export const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 // ========== THEMES ==========
 export const themes = {
   light: {
-    bg: '#E8E2DA', sidebar: '#2C3E4A', sidebarHover: '#34495E',
-    card: '#F5F1EC', cardAlt: '#2C3E4A', cardAltText: '#F0EDE8',
-    text: '#2C3E4A', textLight: '#6B7C8A', textMuted: '#9AABBA',
-    teal: '#4DB6AC', tealDark: '#2A9D8F', tealDeep: '#1A7A6D', mint: '#A8E6CF',
-    sand: '#C9A96E', sandLight: '#E2D5B8', beige: '#D4C5A9',
-    green: '#2A9D8F', red: '#D4625E', border: 'rgba(0,0,0,0.06)',
-    cardShadow: '0 2px 16px rgba(0,0,0,0.05)',
-    sphere1: 'rgba(77,182,172,0.12)', sphere2: 'rgba(201,169,110,0.1)',
+    bg: '#f0f2f5', sidebar: '#ffffff', sidebarHover: '#f8fafc',
+    card: 'rgba(255,255,255,0.85)', cardAlt: '#1e293b', cardAltText: '#ffffff',
+    text: '#0f172a', textLight: '#475569', textMuted: '#94a3b8',
+    teal: '#06b6d4', tealDark: '#3b82f6', tealDeep: '#1e40af', mint: '#a7f3d0',
+    sand: '#f59e0b', sandLight: '#fef3c7', beige: '#fde68a',
+    green: '#10b981', red: '#f43f5e', border: 'rgba(0,0,0,0.08)',
+    cardShadow: '0 4px 20px rgba(0,0,0,0.06)',
+    sphere1: 'rgba(59,130,246,0.1)', sphere2: 'rgba(139,92,246,0.08)',
+    accentPurple: '#8b5cf6', gradient: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
   },
   dark: {
-    bg: '#151A23', sidebar: '#1C2230', sidebarHover: '#232E3F',
-    card: '#1E2533', cardAlt: '#243042', cardAltText: '#E8E2DA',
-    text: '#E8E2DA', textLight: '#8FA3B0', textMuted: '#5A6C7A',
-    teal: '#4DB6AC', tealDark: '#2A9D8F', tealDeep: '#1A7A6D', mint: '#A8E6CF',
-    sand: '#C9A96E', sandLight: '#3D3428', beige: '#D4C5A9',
-    green: '#2A9D8F', red: '#D4625E', border: 'rgba(255,255,255,0.06)',
-    cardShadow: '0 2px 20px rgba(0,0,0,0.2)',
-    sphere1: 'rgba(77,182,172,0.06)', sphere2: 'rgba(201,169,110,0.04)',
+    bg: '#0a0e1a', sidebar: '#0d1117', sidebarHover: 'rgba(255,255,255,0.05)',
+    card: 'rgba(255,255,255,0.05)', cardAlt: 'rgba(255,255,255,0.08)', cardAltText: '#ffffff',
+    text: '#ffffff', textLight: '#94a3b8', textMuted: '#475569',
+    teal: '#06b6d4', tealDark: '#3b82f6', tealDeep: '#1e40af', mint: '#a7f3d0',
+    sand: '#f59e0b', sandLight: '#92400e', beige: '#fde68a',
+    green: '#10b981', red: '#f43f5e', border: 'rgba(255,255,255,0.08)',
+    cardShadow: '0 8px 32px rgba(0,0,0,0.3)',
+    sphere1: 'rgba(59,130,246,0.08)', sphere2: 'rgba(139,92,246,0.05)',
+    accentPurple: '#8b5cf6', gradient: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
   }
 }
 
-export const COLORS = ['#2A9D8F','#C9A96E','#4DB6AC','#D4625E','#7C6BC4','#A8E6CF','#E6B566','#D4829D','#5DADE2','#45B39D','#AF7AC5','#F0B27A']
+export const COLORS = ['#3b82f6','#06b6d4','#8b5cf6','#f43f5e','#10b981','#f59e0b','#ec4899','#14b8a6','#a78bfa','#fb923c','#22d3ee','#4ade80']
 export const CAT_COLORS = {
-  'Transport': '#2A9D8F', 'Groceries': '#5DADE2', 'Grocery': '#5DADE2',
-  'Eating Out': '#A8E6CF', 'Rent': '#C9A96E', 'Shopping': '#D4829D',
-  'Transfers': '#7C6BC4', 'Professional': '#4DB6AC', 'Bills': '#E6B566',
-  'Food Delivery': '#F0B27A', 'Food': '#F0B27A', 'Subscriptions': '#AF7AC5',
-  'Bank Fees': '#D4625E', 'Cash': '#45B39D', 'Coffee & Cafe': '#C9A96E',
-  'Income': '#2A9D8F', 'Other': '#9AABBA', 'Fitness': '#45B39D',
-  'Housing': '#C9A96E', 'Travel': '#7C6BC4', 'Education': '#5DADE2',
-  'Utilities': '#E6B566', 'Savings': '#2A9D8F', 'Entertainment': '#AF7AC5',
-  'Electronics': '#D4829D', 'Healthcare': '#D4625E', 'Clothing': '#A8E6CF',
-  'Credit': '#4DB6AC', 'Debit': '#9AABBA',
+  'Transport': '#3b82f6', 'Groceries': '#06b6d4', 'Grocery': '#06b6d4',
+  'Eating Out': '#10b981', 'Rent': '#f59e0b', 'Shopping': '#ec4899',
+  'Transfers': '#8b5cf6', 'Professional': '#14b8a6', 'Bills': '#fb923c',
+  'Food Delivery': '#f43f5e', 'Food': '#f43f5e', 'Subscriptions': '#a78bfa',
+  'Bank Fees': '#f43f5e', 'Cash': '#22d3ee', 'Coffee & Cafe': '#f59e0b',
+  'Income': '#10b981', 'Other': '#94a3b8', 'Fitness': '#22d3ee',
+  'Housing': '#f59e0b', 'Travel': '#8b5cf6', 'Education': '#06b6d4',
+  'Utilities': '#fb923c', 'Savings': '#10b981', 'Entertainment': '#a78bfa',
+  'Electronics': '#ec4899', 'Healthcare': '#f43f5e', 'Clothing': '#4ade80',
+  'Credit': '#14b8a6', 'Debit': '#94a3b8',
 }
 
 export const CURRENCIES = [

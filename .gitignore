@@ -12,3 +12,5 @@ data/raw/
 data/processed/
 frontend/node_modules/
 frontend/dist/
+# One-off deploy scripts (kept locally, not committed)
+_*.py

@@ -2,9 +2,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)  # Load .env file - must be before other imports that use env vars
 
 from fastapi import FastAPI, File, Form, UploadFile, Request, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 import asyncio
-import time as _time
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 import json, os, re, uuid
@@ -16,7 +14,9 @@ from src.auth import (
     get_current_user, get_optional_user,
     SignupRequest, LoginRequest, TokenResponse
 )
-from src.ai_coach import generate_plan, generate_plan_stream, categorize_merchants
+# Phase 12: local-only categorization + stats coach. Zero Anthropic / Claude usage.
+from src.categorize_local import embed_text, embed_many, categorize_by_neighbors
+from src.starter_rules import match_starter_rule
 
 app = FastAPI(title="SpendScope API")
 
@@ -31,9 +31,6 @@ app.add_middleware(
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-_coach_cache: dict[str, tuple[dict, float]] = {}
-COACH_CACHE_TTL = 3600  # 1 hour
 
 
 @app.on_event("startup")
@@ -252,8 +249,18 @@ async def import_transactions(request: Request, current_user=Depends(get_current
 
     # Insert transactions
     encrypted = data.get("encrypted", False)
-    for t in data.get("transactions", []):
-        from datetime import date as date_type
+    incoming = data.get("transactions", [])
+
+    # Phase 12D: batch-embed merchant strings up front for speed (single ONNX inference).
+    # Encrypted-mode transactions skip embedding (no plaintext merchant).
+    if not encrypted and incoming:
+        merchants_to_embed = [t.get("merchant") or t.get("description") or "" for t in incoming]
+        embeddings = embed_many(merchants_to_embed)
+    else:
+        embeddings = [None] * len(incoming)
+
+    from datetime import date as date_type
+    for idx, t in enumerate(incoming):
         try:
             tx_date = date_type.fromisoformat(t["date_iso"])
         except (ValueError, KeyError):
@@ -290,12 +297,11 @@ async def import_transactions(request: Request, current_user=Depends(get_current
                 direction=t.get("direction", "OUT"),
                 is_redacted=t.get("is_redacted", False),
                 category_source=t.get("category_source", "auto"),
+                embedding=embeddings[idx] if idx < len(embeddings) else None,
             )
         db.add(txn)
 
     await db.commit()
-    _coach_cache.pop(str(user_id), None)
-
     return {
         "status": "imported",
         "batch_id": str(batch.id),
@@ -304,8 +310,49 @@ async def import_transactions(request: Request, current_user=Depends(get_current
     }
 
 
-@app.patch("/api/transactions/{txn_id}/category")
-async def update_transaction_category(txn_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
+    """Apply a partial-update dict to a Transaction. Returns the changes applied."""
+    changes = {}
+    if "category" in data and data["category"] is not None:
+        txn.category = str(data["category"])
+        txn.category_source = "manual"
+        changes["category"] = txn.category
+    if "direction" in data and data["direction"] is not None:
+        d = str(data["direction"]).upper()
+        if d not in ("IN", "OUT"):
+            raise HTTPException(400, "direction must be 'IN' or 'OUT'")
+        txn.direction = d
+        changes["direction"] = d
+    if "amount" in data and data["amount"] is not None:
+        try:
+            amt = round(float(data["amount"]), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "amount must be a number")
+        if amt <= 0:
+            raise HTTPException(400, "amount must be > 0")
+        txn.amount = amt
+        changes["amount"] = amt
+    if "merchant" in data and data["merchant"] is not None:
+        m = str(data["merchant"]).strip()
+        if m:
+            txn.merchant = m[:255]
+            changes["merchant"] = txn.merchant
+            # Phase 12D: re-embed when merchant changes so KNN learns the corrected name.
+            try:
+                txn.embedding = embed_text(txn.merchant)
+            except Exception:
+                pass  # never block a category fix on embedding failure
+    if "description" in data and data["description"] is not None:
+        txn.description = str(data["description"])
+        changes["description"] = txn.description
+    return changes
+
+
+@app.patch("/api/transactions/{txn_id}")
+async def update_transaction(txn_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Partial-update a transaction. Accepts any subset of:
+       category, direction (IN|OUT), amount, merchant, description.
+       Phase 11A: replaces the older /category-only PATCH."""
     data = await request.json()
     user_id = uuid.UUID(current_user["user_id"])
     result = await db.execute(
@@ -314,11 +361,42 @@ async def update_transaction_category(txn_id: str, request: Request, current_use
     txn = result.scalar_one_or_none()
     if not txn:
         raise HTTPException(404, "Transaction not found")
-
-    txn.category = data.get("category", txn.category)
-    txn.category_source = "manual"
+    changes = await _apply_txn_patch(txn, data)
     await db.commit()
-    return {"status": "updated", "id": txn_id, "category": txn.category}
+    return {"status": "updated", "id": txn_id, "changes": changes}
+
+
+@app.patch("/api/transactions/{txn_id}/category")
+async def update_transaction_category(txn_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Legacy alias kept for backward compatibility with older clients."""
+    return await update_transaction(txn_id, request, current_user, db)
+
+
+@app.post("/api/transactions/batch-update")
+async def batch_update_transactions(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Phase 11C: apply the same patch to many transactions at once.
+    Body: {ids: [str], changes: {category?, direction?, amount?, merchant?, description?}}
+    """
+    data = await request.json()
+    ids = data.get("ids") or []
+    changes = data.get("changes") or {}
+    if not ids or not changes:
+        raise HTTPException(400, "ids and changes are required")
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        uuid_ids = [uuid.UUID(i) for i in ids]
+    except ValueError:
+        raise HTTPException(400, "Invalid id in ids list")
+    result = await db.execute(
+        select(TxnModel).where(TxnModel.id.in_(uuid_ids), TxnModel.user_id == user_id)
+    )
+    txns = result.scalars().all()
+    updated = 0
+    for t in txns:
+        await _apply_txn_patch(t, changes)
+        updated += 1
+    await db.commit()
+    return {"status": "updated", "count": updated}
 
 
 # --- Import Batch Endpoints ---
@@ -379,8 +457,6 @@ async def wipe_user_data(current_user=Depends(get_current_user), db=Depends(get_
     await db.commit()
 
     # Clear coach cache for this user (it's keyed by user_id string)
-    _coach_cache.pop(str(user_id), None)
-
     return {"status": "wiped", "deleted": counts}
 
 
@@ -564,108 +640,44 @@ async def upload_csv(file: UploadFile = File(...)):
     }
 
 
-# --- AI Coaching Endpoint ---
+# --- Phase 12E: Local Stats Coach (replaces 3 Claude coaching endpoints) ---
 
-@app.post("/api/coaching/plan")
-async def get_coaching_plan(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
-    """Generate a personalized financial coaching plan from user's transactions."""
+from src.stats_coach import compute_stats
+
+
+@app.get("/api/coaching/stats")
+async def get_coaching_stats(user=Depends(get_current_user), db=Depends(get_db)):
+    """Deterministic financial stats. No LLM, no outbound calls. Replaces /coaching/plan*."""
     user_id = uuid.UUID(user["user_id"])
-
-    # Fetch user record for currency + name
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user_row = user_result.scalar_one_or_none()
+    user_row = await db.get(User, user_id)
     if not user_row:
         raise HTTPException(404, "User not found")
-
-    # Fetch transactions
-    txn_result = await db.execute(
+    txn_rows = await db.execute(
         select(TxnModel).where(TxnModel.user_id == user_id).order_by(TxnModel.date.desc())
     )
-    txns = txn_result.scalars().all()
-    if not txns:
-        raise HTTPException(400, "No transactions found. Import a bank statement first.")
-
     transactions = [{
         "date_iso": t.date.isoformat(),
-        "description": t.description,
         "merchant": t.merchant,
+        "description": t.description,
         "category": t.category,
-        "type": t.type or "",
         "money_in": float(t.amount) if t.direction == "IN" else 0,
         "money_out": float(t.amount) if t.direction == "OUT" else 0,
-        "balance": float(t.balance) if t.balance else None,
         "direction": t.direction,
-    } for t in txns if not t.is_redacted and not t.encrypted_data]
-
-    if not transactions:
-        raise HTTPException(400, "No unencrypted transactions available for coaching.")
-
-    # Optional debt info from request body
-    body = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-    debt_info = body.get("debt_info")
-
-    result = await generate_plan(
-        transactions=transactions,
-        user_currency=user_row.currency or "$",
-        user_name=user_row.name or "",
-        debt_info=debt_info,
-    )
-    return result
+    } for t in txn_rows.scalars().all() if not t.is_redacted and not t.encrypted_data]
+    return compute_stats(transactions, user_row.currency or "$")
 
 
+# --- Local Categorization Endpoint ---
 
-@app.get("/api/coaching/plan-cached")
-async def get_cached_plan(user=Depends(get_current_user)):
-    """Return cached coaching plan if fresh."""
-    cache_key = str(uuid.UUID(user["user_id"]))
-    if cache_key in _coach_cache:
-        plan_data, cached_at = _coach_cache[cache_key]
-        if _time.time() - cached_at < COACH_CACHE_TTL:
-            return {"cached": True, "cached_at": cached_at, **plan_data}
-    raise HTTPException(404, "No cached plan")
+@app.post("/api/categorize-local")
+async def categorize_local(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Phase 12D: local merchant categorization. ZERO outbound network calls.
 
-
-@app.post("/api/coaching/plan-stream")
-async def stream_coaching_plan(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
-    """Stream coaching plan tokens via SSE."""
-    user_id = uuid.UUID(user["user_id"])
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user_row = user_result.scalar_one_or_none()
-    if not user_row:
-        raise HTTPException(404, "User not found")
-    result = await db.execute(select(TxnModel).where(TxnModel.user_id == user_id))
-    txns = result.scalars().all()
-    transactions = [{"date_iso": str(t.date), "description": t.description or "", "merchant": t.merchant or "", "category": t.category or "Other", "type": t.type or "", "amount": float(t.amount or 0), "money_in": float(t.amount) if t.direction == "IN" else 0, "money_out": float(t.amount) if t.direction != "IN" else 0, "balance": float(t.balance) if t.balance else None, "direction": t.direction} for t in txns if not t.is_redacted and not t.encrypted_data]
-
-    if not transactions:
-        async def empty():
-            yield f"data: {json.dumps({'error': 'No transactions'})}\n\n"
-        return StreamingResponse(empty(), media_type="text/event-stream")
-
-    body = {}
-    try: body = await request.json()
-    except: pass
-
-    async def event_stream():
-        plan_result = None
-        async for chunk in generate_plan_stream(transactions, user_row.currency or "$", user_row.name or "", body.get("debt_info")):
-            if "done" in chunk and chunk["done"]:
-                plan_result = chunk
-                _coach_cache[str(user_id)] = (chunk, _time.time())
-            yield f"data: {json.dumps(chunk)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-# --- AI Categorization Endpoint ---
-
-@app.post("/api/categorize-ai")
-async def categorize_ai(request: Request):
-    """Use AI to categorize unknown transactions in bulk.
+    Tier walk per item:
+      1. User's own JSON rules (existing _match_rule)
+      2. Vector KNN over the user's manually-categorized history (categorize_local.py)
+      3. Starter pack of common UK + US merchants (starter_rules.py)
+      4. 'Income' if direction == IN, else 'Other'
 
     Body: {"items": [{"merchant": str, "direction": "IN"|"OUT", "amount": float}, ...]}
     Returns: {"categories": {"<merchant>|<direction>": "Category", ...}}
@@ -674,16 +686,35 @@ async def categorize_ai(request: Request):
     items = body.get("items", [])
     if not isinstance(items, list):
         raise HTTPException(400, "items must be a list of objects")
-    if len(items) > 50:
-        raise HTTPException(400, "Maximum 50 items per request")
+    if len(items) > 200:
+        raise HTTPException(400, "Maximum 200 items per request")
     for it in items:
         if not isinstance(it, dict) or "merchant" not in it or "direction" not in it:
             raise HTTPException(400, "each item needs merchant and direction fields")
         if it["direction"] not in ("IN", "OUT"):
             raise HTTPException(400, "direction must be 'IN' or 'OUT'")
 
-    categories = await categorize_merchants(items)
-    return {"categories": categories}
+    user_id = uuid.UUID(current_user["user_id"])
+    user_rules = _load_rules()
+    out: dict[str, str] = {}
+    for it in items:
+        merchant = (it.get("merchant") or "").strip()
+        direction = it["direction"]
+        key = f"{merchant}|{direction}"
+        # Tier 1: user-defined JSON rules
+        cat = next((r.get("category") for r in user_rules if _match_rule(r, merchant)), None)
+        # Tier 2: vector KNN over user's manually-categorized history
+        if not cat:
+            cat = await categorize_by_neighbors(user_id, merchant, direction, db)
+        # Tier 3: starter pack -- OUT-direction only. Starter merchants are all
+        # spend-side (Tesco, Wingstop, Spotify); applying to IN would mis-categorize salary.
+        if not cat and direction == "OUT":
+            cat = match_starter_rule(merchant)
+        # Tier 4: direction-aware fallback
+        if not cat:
+            cat = "Income" if direction == "IN" else "Other"
+        out[key] = cat
+    return {"categories": out}
 
 
 # --- Category Rules Endpoints ---
@@ -988,8 +1019,6 @@ async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> 
     item.sync_cursor = cursor
     item.last_synced_at = _dt.now(_tz.utc)
     await db.commit()
-
-    _coach_cache.pop(str(user_id), None)
 
     return {"added": inserted, "modified": len(all_modified), "removed": len(all_removed), "accounts": len(account_id_map)}
 

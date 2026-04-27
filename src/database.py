@@ -19,10 +19,11 @@ async def get_db():
             await session.close()
 
 
-# Phase 10B: idempotent ALTER TABLE statements that run after metadata.create_all.
+# Idempotent ALTER TABLE / CREATE EXTENSION statements that run after metadata.create_all.
 # Postgres 9.6+ supports ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS.
 # Safe to run on every startup.
 _PHASE10_ALTERS = [
+    # Phase 10B: per-card metadata
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS plaid_account_id VARCHAR(255)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_accounts_plaid_account_id ON accounts(plaid_account_id) WHERE plaid_account_id IS NOT NULL",
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS plaid_item_id UUID REFERENCES plaid_items(id) ON DELETE CASCADE",
@@ -34,6 +35,10 @@ _PHASE10_ALTERS = [
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS available_balance NUMERIC(12,2)",
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS due_day INTEGER",
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ",
+    # Phase 12A: pgvector for local merchant-similarity categorization (no Claude)
+    "CREATE EXTENSION IF NOT EXISTS vector",
+    "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS embedding vector(384)",
+    "CREATE INDEX IF NOT EXISTS ix_transactions_embedding ON transactions USING hnsw (embedding vector_cosine_ops)",
 ]
 
 

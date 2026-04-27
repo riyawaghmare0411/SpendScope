@@ -181,11 +181,13 @@ function App() {
   const ALL_CATEGORIES = [...new Set(MERCHANT_CATEGORIES.map(([cat]) => cat).concat(['Other', 'Income', 'Salary', 'Cash', 'Coffee & Cafe', 'Entertainment', 'Electronics', 'Healthcare', 'Clothing', 'Fitness', 'Housing', 'Travel', 'Education', 'Utilities', 'Savings', 'Professional', 'Bills', 'Credit', 'Debit']))].sort()
 
   // AI-categorize any "Other" merchants, then set pending import
-  const aiCategorizeAndImport = async (tagged, bankName, filename) => {
-    // Dedup key = merchant + direction (so same merchant in/out get separate AI calls)
+  // Phase 12D: renamed from aiCategorizeAndImport. Hits the local /api/categorize-local
+  // endpoint which uses tiered rules + pgvector KNN -- no Claude, no outbound calls.
+  const localCategorizeAndImport = async (tagged, bankName, filename) => {
+    // Dedup key = merchant + direction (Wingstop salary IN vs Wingstop meal OUT)
     const directionOf = (t) => t.direction || (Number(t.money_in) > 0 ? 'IN' : 'OUT')
     const keyOf = (t) => `${t.merchant || t.description || ''}|${directionOf(t)}`
-    const seen = new Map() // key -> { merchant, direction, amount }
+    const seen = new Map()
     for (const t of tagged) {
       if (t.category !== 'Other') continue
       const k = keyOf(t)
@@ -198,11 +200,15 @@ function App() {
     const items = [...seen.values()]
     if (items.length > 0) {
       try {
-        // Batch in groups of 15 (garbled text can cause parse issues in larger batches)
+        // Local endpoint accepts up to 200 items per request -- usually one round trip
         const allCategories = {}
-        for (let i = 0; i < items.length; i += 15) {
-          const batch = items.slice(i, i + 15)
-          const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: batch }) })
+        for (let i = 0; i < items.length; i += 200) {
+          const batch = items.slice(i, i + 200)
+          const r = await fetch(`${API_BASE}/api/categorize-local`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ items: batch }),
+          })
           const { categories } = await r.json()
           if (categories) Object.assign(allCategories, categories)
         }
@@ -213,7 +219,7 @@ function App() {
           }
           return t
         })
-      } catch (e) { /* AI unavailable, keep rule-based categories */ }
+      } catch (e) { /* keep 'Other' if categorize-local unavailable */ }
     }
     setPendingImport({ transactions: tagged, bankName, filename })
     setUploadStatus(null)
@@ -232,7 +238,7 @@ function App() {
           if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in PDF.' }); return }
           const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
           setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-          aiCategorizeAndImport(tagged, result.bank_name || '', file.name)
+          localCategorizeAndImport(tagged, result.bank_name || '', file.name)
         })
         .catch(err => { setUploadStatus({ type: 'error', message: `PDF processing failed: ${err.message}. Make sure the backend is running.` }) })
       return
@@ -253,7 +259,7 @@ function App() {
         if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in CSV.' }); return }
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
         setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-        aiCategorizeAndImport(tagged, result.bank_name || '', file.name)
+        localCategorizeAndImport(tagged, result.bank_name || '', file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -276,7 +282,7 @@ function App() {
             }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
             if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found in CSV.' }); return }
             setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-            aiCategorizeAndImport(mapped, '', file.name)
+            localCategorizeAndImport(mapped, '', file.name)
           },
           error: (err) => { setUploadStatus({ type: 'error', message: `Failed to read file: ${err.message}` }) }
         })
@@ -300,7 +306,7 @@ function App() {
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
         setShowColumnMapper(null)
         setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-        aiCategorizeAndImport(tagged, result.bank_name || mapperBankName, file.name)
+        localCategorizeAndImport(tagged, result.bank_name || mapperBankName, file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -318,7 +324,7 @@ function App() {
             if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found with this mapping.' }); return }
             setShowColumnMapper(null)
             setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-            aiCategorizeAndImport(mapped, mapperBankName, file.name)
+            localCategorizeAndImport(mapped, mapperBankName, file.name)
           },
           error: () => setUploadStatus({ type: 'error', message: 'Failed to parse file with mapping.' })
         })
@@ -634,7 +640,7 @@ function App() {
           )}
 
           {page === 'transactions' && (
-            <TransactionsPage t={t} currency={currency} lc={lc} filteredData={filteredData} data={data} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterCat={filterCat} setFilterCat={setFilterCat} catTotals={catTotals} editingTxnCat={editingTxnCat} setEditingTxnCat={setEditingTxnCat} flashedTxnIdx={flashedTxnIdx} setFlashedTxnIdx={setFlashedTxnIdx} setData={setData} ALL_CATEGORIES={ALL_CATEGORIES} />
+            <TransactionsPage t={t} currency={currency} lc={lc} filteredData={filteredData} data={data} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterCat={filterCat} setFilterCat={setFilterCat} catTotals={catTotals} editingTxnCat={editingTxnCat} setEditingTxnCat={setEditingTxnCat} flashedTxnIdx={flashedTxnIdx} setFlashedTxnIdx={setFlashedTxnIdx} setData={setData} ALL_CATEGORIES={ALL_CATEGORIES} API_BASE={API_BASE} authHeaders={authHeaders} />
           )}
 
           {page === 'calendar' && (

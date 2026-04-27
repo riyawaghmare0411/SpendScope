@@ -4,6 +4,7 @@ from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector  # Phase 12A: 384-dim merchant embeddings
 
 from src.database import Base
 
@@ -104,6 +105,9 @@ class Transaction(Base):
     is_redacted: Mapped[bool] = mapped_column(sa.Boolean, default=False)
     encrypted_data: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     category_source: Mapped[str] = mapped_column(sa.String(50), default="auto")
+    # Phase 12A: 384-dim merchant embedding for local vector-similarity categorization.
+    # Filled at import time + every PATCH that changes the merchant string.
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(384), nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

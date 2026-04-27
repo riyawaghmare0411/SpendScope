@@ -1,4 +1,6 @@
-export default function UploadPage({ t, currency, uploadStatus, setUploadStatus, pendingImport, setPendingImport, showColumnMapper, setShowColumnMapper, importSelectedRows, setImportSelectedRows, editingCell, setEditingCell, columnMapping, setColumnMapping, columnDateFormat, setColumnDateFormat, mapperBankName, setMapperBankName, mapperSaveTemplate, setMapperSaveTemplate, uploadAccountName, setUploadAccountName, handleConfirmImport, handleColumnMapperSubmit, handleCancelImport, handleFileUpload, dragOver, setDragOver, fileInputRef, data, setData, authToken, authHeaders, API_BASE, ALL_CATEGORIES, CAT_COLORS, fmt, lc, Sphere, setPage, toggleImportRow, toggleAllImportRows, deleteSelectedImportRows, updatePendingTransaction }) {
+import { PlaidConnect } from './PlaidConnect'
+
+export default function UploadPage({ t, currency, uploadStatus, setUploadStatus, pendingImport, setPendingImport, showColumnMapper, setShowColumnMapper, importSelectedRows, setImportSelectedRows, editingCell, setEditingCell, columnMapping, setColumnMapping, columnDateFormat, setColumnDateFormat, mapperBankName, setMapperBankName, mapperSaveTemplate, setMapperSaveTemplate, uploadAccountName, setUploadAccountName, handleConfirmImport, handleColumnMapperSubmit, handleCancelImport, handleFileUpload, dragOver, setDragOver, fileInputRef, data, setData, authToken, authHeaders, API_BASE, ALL_CATEGORIES, CAT_COLORS, fmt, lc, Sphere, setPage, toggleImportRow, toggleAllImportRows, deleteSelectedImportRows, updatePendingTransaction, refreshTransactions }) {
   return (<>
 
     {/* ===== COLUMN MAPPER VIEW ===== */}
@@ -191,6 +193,18 @@ export default function UploadPage({ t, currency, uploadStatus, setUploadStatus,
 
     {/* ===== DEFAULT UPLOAD VIEW (drag-and-drop) ===== */}
     {!pendingImport && !showColumnMapper && (<>
+      {/* Plaid auto-sync (Phase 9) -- shows above manual upload */}
+      {authToken && (
+        <PlaidConnect t={t} authToken={authToken} authHeaders={authHeaders} onSyncComplete={refreshTransactions} />
+      )}
+      {/* Divider */}
+      {authToken && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '24px 0 16px' }}>
+          <div style={{ flex: 1, height: '1px', background: t.border }} />
+          <span style={{ fontSize: '11px', color: t.textMuted, letterSpacing: '1px', textTransform: 'uppercase' }}>or upload manually</span>
+          <div style={{ flex: 1, height: '1px', background: t.border }} />
+        </div>
+      )}
       <div style={{ ...lc, padding: '16px 24px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}><label style={{ fontSize: '13px', fontWeight: 500, color: t.text, whiteSpace: 'nowrap' }}>Account Name:</label><input type="text" placeholder="e.g., Checking, Credit Card" value={uploadAccountName} onChange={e => setUploadAccountName(e.target.value)} style={{ flex: 1, padding: '8px 14px', borderRadius: '10px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none' }} onFocus={e => e.target.style.borderColor = t.teal} onBlur={e => e.target.style.borderColor = t.border} /><span style={{ fontSize: '11px', color: t.textMuted }}>Optional</span></div>
       <input ref={fileInputRef} type="file" accept=".csv,.pdf" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleFileUpload(e.target.files[0]); e.target.value = '' }} />
       <div style={{ ...lc, padding: '60px 40px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s', border: dragOver ? `2px dashed ${t.teal}` : `2px dashed ${t.textMuted}40`, background: dragOver ? `${t.teal}08` : t.card }}

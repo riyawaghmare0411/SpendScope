@@ -27,3 +27,7 @@ rsa==4.9.1
 pyasn1==0.6.3
 six==1.17.0
 greenlet==3.3.2
+# Phase 9 -- Plaid bank sync
+plaid-python==18.4.0
+cryptography==46.0.6
+PyJWT==2.10.1

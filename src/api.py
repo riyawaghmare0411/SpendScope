@@ -10,7 +10,7 @@ from sqlalchemy import select
 import json, os, re, uuid
 from pathlib import Path
 from src.database import get_db, init_db, async_session
-from src.models import User, Account, ImportBatch, Transaction as TxnModel, CategoryRule, Budget
+from src.models import User, Account, ImportBatch, Transaction as TxnModel, CategoryRule, Budget, PlaidItem
 from src.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, get_optional_user,
@@ -692,3 +692,290 @@ async def upload_pdf(file: UploadFile = File(...)):
         "has_redactions": len(redacted) > 0 if redacted else False,
         "filename": file.filename,
     }
+
+
+# --- Phase 9: Plaid Bank Sync Endpoints ---
+
+from src import plaid_service as ps
+from sqlalchemy import update as sa_update
+from datetime import datetime as _dt, timezone as _tz
+
+
+async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> dict:
+    """Pull new/modified/removed transactions from Plaid for one Item.
+
+    Reuses the existing ImportBatch + Transaction insert pattern.
+    """
+    from datetime import date as date_type
+
+    item = await db.get(PlaidItem, plaid_item_id)
+    if item is None:
+        raise HTTPException(404, "PlaidItem not found")
+
+    access_token = ps.decrypt_token(item.access_token_encrypted)
+
+    all_added, all_modified, all_removed = [], [], []
+    cursor = item.sync_cursor
+    iterations = 0
+    while True:
+        iterations += 1
+        if iterations > 20:
+            break  # safety cap
+        result = ps.sync_transactions(access_token, cursor=cursor)
+        all_added.extend(result["added"])
+        all_modified.extend(result["modified"])
+        all_removed.extend(result["removed"])
+        cursor = result["next_cursor"]
+        if not result["has_more"]:
+            break
+
+    # Get-or-create Account row
+    account_name = item.institution_name or "Bank Account"
+    account_result = await db.execute(
+        select(Account).where(Account.user_id == user_id, Account.name == account_name)
+    )
+    account = account_result.scalar_one_or_none()
+    if not account:
+        account = Account(user_id=user_id, name=account_name, bank_name=item.institution_name or "")
+        db.add(account)
+        await db.flush()
+
+    sp_added = [ps.plaid_txn_to_spendscope(t) for t in all_added]
+
+    inserted = 0
+    if sp_added:
+        batch = ImportBatch(
+            user_id=user_id,
+            account_id=account.id,
+            plaid_item_id=item.id,
+            source_filename=f"Plaid: {item.institution_name or 'Bank'}",
+            source_type="plaid",
+            bank_name=item.institution_name or "",
+            transaction_count=len(sp_added),
+            status="confirmed",
+        )
+        db.add(batch)
+        await db.flush()
+
+        for t in sp_added:
+            try:
+                tx_date = date_type.fromisoformat(t["date_iso"])
+            except (ValueError, KeyError):
+                continue
+            txn = TxnModel(
+                import_batch_id=batch.id,
+                account_id=account.id,
+                user_id=user_id,
+                date=tx_date,
+                description=t.get("description", ""),
+                merchant=t.get("merchant", ""),
+                category=t.get("category", "Other"),
+                type=t.get("type", ""),
+                amount=round(float(t.get("amount", 0)), 2),
+                balance=None,
+                direction=t.get("direction", "OUT"),
+                is_redacted=False,
+                category_source="plaid",
+            )
+            db.add(txn)
+            inserted += 1
+
+    # modified/removed: defer to v2 (need plaid_transaction_id stored on Transaction first)
+
+    item.sync_cursor = cursor
+    item.last_synced_at = _dt.now(_tz.utc)
+    await db.commit()
+
+    _coach_cache.pop(str(user_id), None)
+
+    return {"added": inserted, "modified": len(all_modified), "removed": len(all_removed)}
+
+
+@app.post("/api/plaid/link-token")
+async def plaid_link_token(current_user=Depends(get_current_user)):
+    """Create a link_token for the frontend to open Plaid Link."""
+    if not ps.is_plaid_configured():
+        raise HTTPException(503, "Plaid is not configured on this server")
+    try:
+        token = ps.create_link_token(current_user["user_id"])
+        return {"link_token": token}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to create link token: {e}")
+
+
+@app.post("/api/plaid/exchange-token")
+async def plaid_exchange_token(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Exchange public_token for permanent access_token, store encrypted, kick off initial sync."""
+    if not ps.is_plaid_configured():
+        raise HTTPException(503, "Plaid is not configured on this server")
+
+    body = await request.json()
+    public_token = body.get("public_token")
+    if not public_token:
+        raise HTTPException(400, "public_token is required")
+
+    institution = body.get("institution") or {}
+    institution_id = institution.get("institution_id") if isinstance(institution, dict) else None
+    institution_name = institution.get("name") if isinstance(institution, dict) else None
+
+    user_id = uuid.UUID(current_user["user_id"])
+
+    try:
+        result = ps.exchange_public_token(public_token)
+    except Exception as e:
+        raise HTTPException(500, f"Token exchange failed: {e}")
+
+    encrypted = ps.encrypt_token(result["access_token"])
+    plaid_item_id = result["item_id"]
+
+    existing = await db.execute(select(PlaidItem).where(PlaidItem.item_id == plaid_item_id))
+    existing_row = existing.scalar_one_or_none()
+    if existing_row:
+        existing_row.access_token_encrypted = encrypted
+        existing_row.sync_status = "active"
+        if institution_name:
+            existing_row.institution_name = institution_name
+        if institution_id:
+            existing_row.institution_id = institution_id
+        item_id_db = existing_row.id
+    else:
+        item = PlaidItem(
+            user_id=user_id,
+            item_id=plaid_item_id,
+            access_token_encrypted=encrypted,
+            institution_id=institution_id,
+            institution_name=institution_name,
+        )
+        db.add(item)
+        await db.flush()
+        item_id_db = item.id
+
+    await db.commit()
+
+    try:
+        sync_result = await _sync_plaid_item(item_id_db, user_id, db)
+    except Exception as e:
+        return {"item_id": str(item_id_db), "synced": False, "error": str(e)}
+
+    return {"item_id": str(item_id_db), "synced": True, **sync_result}
+
+
+@app.post("/api/plaid/sync")
+async def plaid_sync(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Manually trigger a sync for one Item or all of the user's Items."""
+    if not ps.is_plaid_configured():
+        raise HTTPException(503, "Plaid is not configured on this server")
+
+    user_id = uuid.UUID(current_user["user_id"])
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    target_id = body.get("item_id")
+    if target_id:
+        try:
+            uid = uuid.UUID(target_id)
+        except ValueError:
+            raise HTTPException(400, "Invalid item_id")
+        item_result = await db.execute(select(PlaidItem).where(PlaidItem.id == uid, PlaidItem.user_id == user_id))
+        item = item_result.scalar_one_or_none()
+        if not item:
+            raise HTTPException(404, "PlaidItem not found")
+        return await _sync_plaid_item(item.id, user_id, db)
+
+    items_result = await db.execute(select(PlaidItem).where(PlaidItem.user_id == user_id, PlaidItem.sync_status == "active"))
+    items = items_result.scalars().all()
+    totals = {"added": 0, "modified": 0, "removed": 0, "items_synced": 0, "errors": []}
+    for item in items:
+        try:
+            r = await _sync_plaid_item(item.id, user_id, db)
+            totals["added"] += r["added"]
+            totals["modified"] += r["modified"]
+            totals["removed"] += r["removed"]
+            totals["items_synced"] += 1
+        except Exception as e:
+            totals["errors"].append({"item_id": str(item.id), "error": str(e)})
+    return totals
+
+
+@app.get("/api/plaid/items")
+async def plaid_list_items(current_user=Depends(get_current_user), db=Depends(get_db)):
+    """List the user's connected Plaid Items (banks)."""
+    user_id = uuid.UUID(current_user["user_id"])
+    result = await db.execute(select(PlaidItem).where(PlaidItem.user_id == user_id).order_by(PlaidItem.created_at.desc()))
+    items = result.scalars().all()
+    return [
+        {
+            "id": str(item.id),
+            "item_id": item.item_id,
+            "institution_id": item.institution_id,
+            "institution_name": item.institution_name,
+            "sync_status": item.sync_status,
+            "last_synced_at": item.last_synced_at.isoformat() if item.last_synced_at else None,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        }
+        for item in items
+    ]
+
+
+@app.delete("/api/plaid/items/{item_id}")
+async def plaid_delete_item(item_id: str, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Disconnect a Plaid Item. Transactions stay; only the live sync stops."""
+    if not ps.is_plaid_configured():
+        raise HTTPException(503, "Plaid is not configured on this server")
+
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        uid = uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid item_id")
+
+    result = await db.execute(select(PlaidItem).where(PlaidItem.id == uid, PlaidItem.user_id == user_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "PlaidItem not found")
+
+    try:
+        access_token = ps.decrypt_token(item.access_token_encrypted)
+        ps.remove_item(access_token)
+    except Exception:
+        pass
+
+    await db.execute(
+        sa_update(ImportBatch).where(ImportBatch.plaid_item_id == item.id).values(plaid_item_id=None)
+    )
+    await db.delete(item)
+    await db.commit()
+    return {"status": "disconnected"}
+
+
+@app.post("/webhooks/plaid")
+async def plaid_webhook(request: Request, db=Depends(get_db)):
+    """Plaid webhook receiver. Verifies signature and triggers sync on SYNC_UPDATES_AVAILABLE."""
+    if not ps.is_plaid_configured():
+        return {"status": "plaid_not_configured"}
+
+    jwt_header = request.headers.get("Plaid-Verification", "")
+    body_bytes = await request.body()
+
+    try:
+        payload = ps.verify_webhook(jwt_header, body_bytes)
+    except ValueError as e:
+        raise HTTPException(401, f"Webhook verification failed: {e}")
+
+    webhook_type = payload.get("webhook_type")
+    webhook_code = payload.get("webhook_code")
+    item_id = payload.get("item_id")
+
+    if webhook_type == "TRANSACTIONS" and webhook_code == "SYNC_UPDATES_AVAILABLE" and item_id:
+        result = await db.execute(select(PlaidItem).where(PlaidItem.item_id == item_id))
+        item = result.scalar_one_or_none()
+        if item:
+            try:
+                await _sync_plaid_item(item.id, item.user_id, db)
+            except Exception:
+                pass
+
+    return {"status": "ok", "webhook_code": webhook_code}

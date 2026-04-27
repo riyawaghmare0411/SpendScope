@@ -114,7 +114,26 @@ function App() {
     setData([])
   }
 
-  useEffect(() => { if (!authToken) { setLoading(false); return }; fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() }).then(r => r.json()).then(async j => { if (Array.isArray(j)) { const key = await getEncryptionKey(); let processed = j; if (key && j.length > 0 && j[0].encrypted_data) { try { processed = await decryptTransactions(key, j.map(t => ({ iv: JSON.parse(t.encrypted_data).iv, ciphertext: JSON.parse(t.encrypted_data).ciphertext, date_iso: t.date_iso, id: t.id, import_batch_id: t.import_batch_id }))); processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id })) } catch(e) { console.error('Decryption failed:', e); processed = j } } setData(processed.map(d => ({ ...d, _account: d._account || 'Primary' }))); setLoading(false) } else { setLoading(false) } }).catch(() => { setLoading(false) }) }, [authToken])
+  const refreshTransactions = async () => {
+    if (!authToken) return
+    try {
+      const r = await fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() })
+      const j = await r.json()
+      if (Array.isArray(j)) {
+        const key = await getEncryptionKey()
+        let processed = j
+        if (key && j.length > 0 && j[0].encrypted_data) {
+          try {
+            processed = await decryptTransactions(key, j.map(t => ({ iv: JSON.parse(t.encrypted_data).iv, ciphertext: JSON.parse(t.encrypted_data).ciphertext, date_iso: t.date_iso, id: t.id, import_batch_id: t.import_batch_id })))
+            processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id }))
+          } catch(e) { processed = j }
+        }
+        setData(processed.map(d => ({ ...d, _account: d._account || 'Primary' })))
+      }
+    } catch {}
+  }
+
+  useEffect(() => { if (!authToken) { setLoading(false); return }; refreshTransactions().finally(() => setLoading(false)) }, [authToken])
   useEffect(() => { localStorage.setItem('spendscope_budgets', JSON.stringify(budgets)) }, [budgets])
   useEffect(() => { localStorage.setItem('spendscope_accounts', JSON.stringify(accounts)) }, [accounts])
 
@@ -611,7 +630,7 @@ function App() {
           )}
 
           {page === 'upload' && (
-            <UploadPage t={t} currency={currency} uploadStatus={uploadStatus} setUploadStatus={setUploadStatus} pendingImport={pendingImport} setPendingImport={setPendingImport} showColumnMapper={showColumnMapper} setShowColumnMapper={setShowColumnMapper} importSelectedRows={importSelectedRows} setImportSelectedRows={setImportSelectedRows} editingCell={editingCell} setEditingCell={setEditingCell} columnMapping={columnMapping} setColumnMapping={setColumnMapping} columnDateFormat={columnDateFormat} setColumnDateFormat={setColumnDateFormat} mapperBankName={mapperBankName} setMapperBankName={setMapperBankName} mapperSaveTemplate={mapperSaveTemplate} setMapperSaveTemplate={setMapperSaveTemplate} uploadAccountName={uploadAccountName} setUploadAccountName={setUploadAccountName} handleConfirmImport={handleConfirmImport} handleColumnMapperSubmit={handleColumnMapperSubmit} handleCancelImport={handleCancelImport} handleFileUpload={handleFileUpload} dragOver={dragOver} setDragOver={setDragOver} fileInputRef={fileInputRef} data={data} setData={setData} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} fmt={fmt} lc={lc} Sphere={Sphere} setPage={setPage} toggleImportRow={toggleImportRow} toggleAllImportRows={toggleAllImportRows} deleteSelectedImportRows={deleteSelectedImportRows} updatePendingTransaction={updatePendingTransaction} />
+            <UploadPage t={t} currency={currency} uploadStatus={uploadStatus} setUploadStatus={setUploadStatus} pendingImport={pendingImport} setPendingImport={setPendingImport} showColumnMapper={showColumnMapper} setShowColumnMapper={setShowColumnMapper} importSelectedRows={importSelectedRows} setImportSelectedRows={setImportSelectedRows} editingCell={editingCell} setEditingCell={setEditingCell} columnMapping={columnMapping} setColumnMapping={setColumnMapping} columnDateFormat={columnDateFormat} setColumnDateFormat={setColumnDateFormat} mapperBankName={mapperBankName} setMapperBankName={setMapperBankName} mapperSaveTemplate={mapperSaveTemplate} setMapperSaveTemplate={setMapperSaveTemplate} uploadAccountName={uploadAccountName} setUploadAccountName={setUploadAccountName} handleConfirmImport={handleConfirmImport} handleColumnMapperSubmit={handleColumnMapperSubmit} handleCancelImport={handleCancelImport} handleFileUpload={handleFileUpload} dragOver={dragOver} setDragOver={setDragOver} fileInputRef={fileInputRef} data={data} setData={setData} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} fmt={fmt} lc={lc} Sphere={Sphere} setPage={setPage} toggleImportRow={toggleImportRow} toggleAllImportRows={toggleAllImportRows} deleteSelectedImportRows={deleteSelectedImportRows} updatePendingTransaction={updatePendingTransaction} refreshTransactions={refreshTransactions} />
           )}
         </div>
       </div>

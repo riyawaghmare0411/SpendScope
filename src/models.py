@@ -34,6 +34,7 @@ class User(Base):
     category_rules: Mapped[list["CategoryRule"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     budgets: Mapped[list["Budget"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     csv_templates: Mapped[list["CsvTemplate"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    plaid_items: Mapped[list["PlaidItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Account(Base):
@@ -58,6 +59,7 @@ class ImportBatch(Base):
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("users.id"), nullable=False, index=True)
     account_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("accounts.id"), nullable=False, index=True)
+    plaid_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(sa.ForeignKey("plaid_items.id"), nullable=True, index=True)
     source_filename: Mapped[str] = mapped_column(sa.String(500), nullable=False)
     source_type: Mapped[str] = mapped_column(sa.String(50), default="csv")
     bank_name: Mapped[Optional[str]] = mapped_column(sa.String(255))
@@ -67,6 +69,7 @@ class ImportBatch(Base):
 
     user: Mapped["User"] = relationship(back_populates="import_batches")
     account: Mapped["Account"] = relationship(back_populates="import_batches")
+    plaid_item: Mapped[Optional["PlaidItem"]] = relationship(back_populates="import_batches")
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="import_batch", cascade="all, delete-orphan")
 
 
@@ -138,3 +141,28 @@ class CsvTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
     user: Mapped[Optional["User"]] = relationship(back_populates="csv_templates")
+
+
+class PlaidItem(Base):
+    """Represents one Plaid bank connection per user.
+
+    The access_token from Plaid lives in `access_token_encrypted` -- encrypted
+    at rest with Fernet using the server-side PLAID_TOKEN_ENCRYPTION_KEY env var.
+    The plaintext token is never stored.
+    """
+    __tablename__ = "plaid_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id: Mapped[str] = mapped_column(sa.String(255), unique=True, nullable=False, index=True)
+    access_token_encrypted: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    institution_id: Mapped[Optional[str]] = mapped_column(sa.String(255))
+    institution_name: Mapped[Optional[str]] = mapped_column(sa.String(255))
+    sync_cursor: Mapped[Optional[str]] = mapped_column(sa.Text)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(sa.DateTime(timezone=True))
+    sync_status: Mapped[str] = mapped_column(sa.String(50), default="active")
+    created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="plaid_items")
+    import_batches: Mapped[list["ImportBatch"]] = relationship(back_populates="plaid_item")

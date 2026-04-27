@@ -140,21 +140,34 @@ function App() {
 
   // AI-categorize any "Other" merchants, then set pending import
   const aiCategorizeAndImport = async (tagged, bankName, filename) => {
-    const others = [...new Set(tagged.filter(t => t.category === 'Other').map(t => t.merchant || t.description || ''))]
-    if (others.length > 0) {
+    // Dedup key = merchant + direction (so same merchant in/out get separate AI calls)
+    const directionOf = (t) => t.direction || (Number(t.money_in) > 0 ? 'IN' : 'OUT')
+    const keyOf = (t) => `${t.merchant || t.description || ''}|${directionOf(t)}`
+    const seen = new Map() // key -> { merchant, direction, amount }
+    for (const t of tagged) {
+      if (t.category !== 'Other') continue
+      const k = keyOf(t)
+      if (!seen.has(k)) {
+        const direction = directionOf(t)
+        const amount = direction === 'IN' ? (Number(t.money_in) || 0) : (Number(t.money_out) || Number(t.amount) || 0)
+        seen.set(k, { merchant: t.merchant || t.description || '', direction, amount })
+      }
+    }
+    const items = [...seen.values()]
+    if (items.length > 0) {
       try {
         // Batch in groups of 15 (garbled text can cause parse issues in larger batches)
         const allCategories = {}
-        for (let i = 0; i < others.length; i += 15) {
-          const batch = others.slice(i, i + 15)
-          const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchants: batch }) })
+        for (let i = 0; i < items.length; i += 15) {
+          const batch = items.slice(i, i + 15)
+          const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: batch }) })
           const { categories } = await r.json()
           if (categories) Object.assign(allCategories, categories)
         }
         tagged = tagged.map(t => {
           if (t.category === 'Other') {
-            const key = t.merchant || t.description || ''
-            if (allCategories[key] && allCategories[key] !== 'Other') return { ...t, category: allCategories[key] }
+            const k = keyOf(t)
+            if (allCategories[k] && allCategories[k] !== 'Other') return { ...t, category: allCategories[k] }
           }
           return t
         })
@@ -553,7 +566,7 @@ function App() {
       <Sidebar t={t} mode={mode} setMode={setMode} page={page} setPage={setPage} globalRange={globalRange} setGlobalRange={setGlobalRange} currency={currency} setCurrency={setCurrency} CURRENCIES={CURRENCIES} NAV={NAV} userName={userName} setShowProfile={setShowProfile} handleLogout={handleLogout} insightsSeen={insightsSeen} setInsightsSeen={setInsightsSeen} anomalies={anomalies} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} />
 
       {/* MAIN CONTENT */}
-      <div style={{ marginLeft: '220px', flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ marginLeft: '220px', flex: 1, position: 'relative', overflow: 'hidden', background: t.bg }}>
         <Sphere size="160px" color={t.teal} top="-30px" right="60px" opacity={0.4} />
         <Sphere size="100px" color={t.sand} top="250px" right="-20px" opacity={0.3} />
         <Sphere size="80px" color={t.mint} bottom="200px" left="-10px" opacity={0.3} />

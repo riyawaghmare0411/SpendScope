@@ -520,15 +520,24 @@ async def stream_coaching_plan(request: Request, user=Depends(get_current_user),
 
 @app.post("/api/categorize-ai")
 async def categorize_ai(request: Request):
-    """Use AI to categorize unknown merchant names in bulk."""
-    body = await request.json()
-    merchants = body.get("merchants", [])
-    if not isinstance(merchants, list):
-        raise HTTPException(400, "merchants must be a list of strings")
-    if len(merchants) > 50:
-        raise HTTPException(400, "Maximum 50 merchants per request")
+    """Use AI to categorize unknown transactions in bulk.
 
-    categories = await categorize_merchants(merchants)
+    Body: {"items": [{"merchant": str, "direction": "IN"|"OUT", "amount": float}, ...]}
+    Returns: {"categories": {"<merchant>|<direction>": "Category", ...}}
+    """
+    body = await request.json()
+    items = body.get("items", [])
+    if not isinstance(items, list):
+        raise HTTPException(400, "items must be a list of objects")
+    if len(items) > 50:
+        raise HTTPException(400, "Maximum 50 items per request")
+    for it in items:
+        if not isinstance(it, dict) or "merchant" not in it or "direction" not in it:
+            raise HTTPException(400, "each item needs merchant and direction fields")
+        if it["direction"] not in ("IN", "OUT"):
+            raise HTTPException(400, "direction must be 'IN' or 'OUT'")
+
+    categories = await categorize_merchants(items)
     return {"categories": categories}
 
 

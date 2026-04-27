@@ -269,28 +269,51 @@ VALID_CATEGORIES = [
 ]
 
 CATEGORIZE_SYSTEM = (
-    "You are a financial transaction categorizer. Given merchant names from bank statements, "
-    "classify each into exactly one category. Merchant names may be garbled, abbreviated, or "
-    "contain transaction codes -- use your best judgment.\n"
+    "You are a financial transaction categorizer. Each transaction has a merchant name, "
+    "a direction (IN = money received, OUT = money spent), and an amount.\n"
+    "Use direction as the PRIMARY signal:\n"
+    "- IN transactions are typically Income (salary, refunds, transfers received).\n"
+    "- OUT transactions are spending categories (Eating Out, Groceries, Transport, etc.).\n"
+    "Same merchant CAN appear in both directions and get DIFFERENT categories. "
+    "For example, a person may work at a restaurant (paycheck IN = Income) AND eat there "
+    "(payment OUT = Eating Out). Treat each direction independently.\n"
+    "Merchant names may be garbled, abbreviated, or contain transaction codes -- use your best judgment.\n"
     "Valid categories: " + ", ".join(VALID_CATEGORIES) + "\n"
-    "Respond with ONLY a JSON object mapping each merchant name to its category. "
-    "No markdown fences, no explanation."
+    "Respond with ONLY a JSON object mapping keys of the form \"<merchant>|<direction>\" "
+    "to a category. No markdown fences, no explanation."
 )
 
 
-async def categorize_merchants(merchants: list[str]) -> dict[str, str]:
-    """Use AI to categorize unknown merchant names. Returns {merchant: category}."""
-    if not merchants:
+def _key(merchant: str, direction: str) -> str:
+    return f"{merchant}|{direction}"
+
+
+async def categorize_merchants(items: list[dict]) -> dict[str, str]:
+    """Use AI to categorize unknown transactions.
+
+    Args:
+        items: list of dicts with keys: merchant (str), direction ('IN'|'OUT'), amount (float)
+
+    Returns:
+        dict mapping "<merchant>|<direction>" to category string.
+    """
+    if not items:
         return {}
+
+    # Cap at 15 items per call (garbled text causes JSON parse failures in larger batches)
+    items = items[:15]
 
     # Fallback if API not configured
     if not ANTHROPIC_API_KEY:
-        return {m: "Other" for m in merchants}
+        return {_key(it["merchant"], it["direction"]): ("Income" if it["direction"] == "IN" else "Other") for it in items}
 
-    # Cap at 15 merchants per call (garbled text causes JSON parse failures in larger batches)
-    merchants = merchants[:15]
-
-    prompt = "Categorize these merchant names:\n" + "\n".join(f"- {m}" for m in merchants)
+    prompt_lines = []
+    for it in items:
+        m = it.get("merchant", "")
+        d = it.get("direction", "OUT")
+        a = float(it.get("amount", 0) or 0)
+        prompt_lines.append(f"- {m} | {d} | amount={a:.2f}")
+    prompt = "Categorize these transactions:\n" + "\n".join(prompt_lines)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -311,7 +334,7 @@ async def categorize_merchants(merchants: list[str]) -> dict[str, str]:
             )
 
         if response.status_code != 200:
-            return {m: "Other" for m in merchants}
+            return {_key(it["merchant"], it["direction"]): ("Income" if it["direction"] == "IN" else "Other") for it in items}
 
         body = response.json()
         text = body.get("content", [{}])[0].get("text", "")
@@ -324,15 +347,24 @@ async def categorize_merchants(merchants: list[str]) -> dict[str, str]:
 
         result = json.loads(cleaned)
 
-        # Validate: ensure all values are valid categories, default to "Other"
+        # Validate: ensure all values are valid categories, default sensibly per direction
         validated = {}
-        for m in merchants:
-            cat = result.get(m, "Other")
-            validated[m] = cat if cat in VALID_CATEGORIES else "Other"
+        for it in items:
+            m = it.get("merchant", "")
+            d = it.get("direction", "OUT")
+            k = _key(m, d)
+            cat = result.get(k, None)
+            if cat not in VALID_CATEGORIES:
+                # Defensive fallback: IN with no/invalid category -> Income, OUT -> Other
+                cat = "Income" if d == "IN" else "Other"
+            elif cat == "Other" and d == "IN":
+                # AI gave up on an IN transaction -- direction signal says it's likely Income
+                cat = "Income"
+            validated[k] = cat
         return validated
 
     except Exception:
-        return {m: "Other" for m in merchants}
+        return {_key(it["merchant"], it["direction"]): ("Income" if it["direction"] == "IN" else "Other") for it in items}
 
 
 async def generate_plan(

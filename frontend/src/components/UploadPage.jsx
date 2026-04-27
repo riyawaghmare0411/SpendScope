@@ -1,6 +1,7 @@
 import { PlaidConnect } from './PlaidConnect'
 
-export default function UploadPage({ t, currency, uploadStatus, setUploadStatus, pendingImport, setPendingImport, showColumnMapper, setShowColumnMapper, importSelectedRows, setImportSelectedRows, editingCell, setEditingCell, columnMapping, setColumnMapping, columnDateFormat, setColumnDateFormat, mapperBankName, setMapperBankName, mapperSaveTemplate, setMapperSaveTemplate, uploadAccountName, setUploadAccountName, handleConfirmImport, handleColumnMapperSubmit, handleCancelImport, handleFileUpload, dragOver, setDragOver, fileInputRef, data, setData, authToken, authHeaders, API_BASE, ALL_CATEGORIES, CAT_COLORS, fmt, lc, Sphere, setPage, toggleImportRow, toggleAllImportRows, deleteSelectedImportRows, updatePendingTransaction, refreshTransactions }) {
+export default function UploadPage({ t, currency, uploadStatus, setUploadStatus, pendingImport, setPendingImport, showColumnMapper, setShowColumnMapper, importSelectedRows, setImportSelectedRows, editingCell, setEditingCell, columnMapping, setColumnMapping, columnDateFormat, setColumnDateFormat, mapperBankName, setMapperBankName, mapperSaveTemplate, setMapperSaveTemplate, uploadAccountName, setUploadAccountName, handleConfirmImport, handleColumnMapperSubmit, handleCancelImport, handleFileUpload, dragOver, setDragOver, fileInputRef, data, setData, authToken, authHeaders, API_BASE, ALL_CATEGORIES, CAT_COLORS, fmt, lc, Sphere, setPage, toggleImportRow, toggleAllImportRows, deleteSelectedImportRows, updatePendingTransaction, refreshTransactions, refreshAccounts }) {
+  const onPlaidSync = () => { refreshTransactions && refreshTransactions(); refreshAccounts && refreshAccounts() }
   return (<>
 
     {/* ===== COLUMN MAPPER VIEW ===== */}
@@ -195,7 +196,7 @@ export default function UploadPage({ t, currency, uploadStatus, setUploadStatus,
     {!pendingImport && !showColumnMapper && (<>
       {/* Plaid auto-sync (Phase 9) -- shows above manual upload */}
       {authToken && (
-        <PlaidConnect t={t} authToken={authToken} authHeaders={authHeaders} onSyncComplete={refreshTransactions} />
+        <PlaidConnect t={t} authToken={authToken} authHeaders={authHeaders} onSyncComplete={onPlaidSync} />
       )}
       {/* Divider */}
       {authToken && (

@@ -4,6 +4,7 @@ from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector  # Phase 12A: 384-dim merchant embeddings
 
 from src.database import Base
 
@@ -48,9 +49,22 @@ class Account(Base):
     currency: Mapped[str] = mapped_column(sa.String(10), default="USD")
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
+    # Phase 10B: per-card metadata (NULL for non-Plaid accounts).
+    # plaid_account_id has a partial unique index added in database.py so multiple NULLs are allowed.
+    plaid_account_id: Mapped[Optional[str]] = mapped_column(sa.String(255), index=True, nullable=True)
+    plaid_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(sa.ForeignKey("plaid_items.id", ondelete="CASCADE"), nullable=True, index=True)
+    mask: Mapped[Optional[str]] = mapped_column(sa.String(10))
+    subtype: Mapped[Optional[str]] = mapped_column(sa.String(50))
+    credit_limit: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
+    current_balance: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
+    available_balance: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
+    due_day: Mapped[Optional[int]] = mapped_column(sa.Integer)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(sa.DateTime(timezone=True))
+
     user: Mapped["User"] = relationship(back_populates="accounts")
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account", cascade="all, delete-orphan")
     import_batches: Mapped[list["ImportBatch"]] = relationship(back_populates="account", cascade="all, delete-orphan")
+    plaid_item: Mapped[Optional["PlaidItem"]] = relationship(back_populates="accounts")
 
 
 class ImportBatch(Base):
@@ -91,6 +105,9 @@ class Transaction(Base):
     is_redacted: Mapped[bool] = mapped_column(sa.Boolean, default=False)
     encrypted_data: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     category_source: Mapped[str] = mapped_column(sa.String(50), default="auto")
+    # Phase 12A: 384-dim merchant embedding for local vector-similarity categorization.
+    # Filled at import time + every PATCH that changes the merchant string.
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(384), nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -166,3 +183,4 @@ class PlaidItem(Base):
 
     user: Mapped["User"] = relationship(back_populates="plaid_items")
     import_batches: Mapped[list["ImportBatch"]] = relationship(back_populates="plaid_item")
+    accounts: Mapped[list["Account"]] = relationship(back_populates="plaid_item")

@@ -31,3 +31,6 @@ greenlet==3.3.2
 plaid-python==18.4.0
 cryptography==46.0.6
 PyJWT==2.10.1
+# Phase 12 -- local vector categorization (replaces Claude API)
+fastembed==0.7.4
+pgvector==0.4.1

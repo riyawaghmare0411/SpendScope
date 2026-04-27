@@ -2,9 +2,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)  # Load .env file - must be before other imports that use env vars
 
 from fastapi import FastAPI, File, Form, UploadFile, Request, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 import asyncio
-import time as _time
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 import json, os, re, uuid
@@ -16,7 +14,9 @@ from src.auth import (
     get_current_user, get_optional_user,
     SignupRequest, LoginRequest, TokenResponse
 )
-from src.ai_coach import generate_plan, generate_plan_stream, categorize_merchants
+# Phase 12: local-only categorization + stats coach. Zero Anthropic / Claude usage.
+from src.categorize_local import embed_text, embed_many, categorize_by_neighbors
+from src.starter_rules import match_starter_rule
 
 app = FastAPI(title="SpendScope API")
 
@@ -31,9 +31,6 @@ app.add_middleware(
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-_coach_cache: dict[str, tuple[dict, float]] = {}
-COACH_CACHE_TTL = 3600  # 1 hour
 
 
 @app.on_event("startup")
@@ -211,6 +208,7 @@ async def get_transactions(user=Depends(get_optional_user), db=Depends(get_db)):
             "category_source": t.category_source,
             "id": str(t.id),
             "import_batch_id": str(t.import_batch_id) if t.import_batch_id else None,
+            "account_id": str(t.account_id) if t.account_id else None,
         } for t in txns]
 
     # Fallback: read from JSON file (backward compat)
@@ -251,8 +249,18 @@ async def import_transactions(request: Request, current_user=Depends(get_current
 
     # Insert transactions
     encrypted = data.get("encrypted", False)
-    for t in data.get("transactions", []):
-        from datetime import date as date_type
+    incoming = data.get("transactions", [])
+
+    # Phase 12D: batch-embed merchant strings up front for speed (single ONNX inference).
+    # Encrypted-mode transactions skip embedding (no plaintext merchant).
+    if not encrypted and incoming:
+        merchants_to_embed = [t.get("merchant") or t.get("description") or "" for t in incoming]
+        embeddings = embed_many(merchants_to_embed)
+    else:
+        embeddings = [None] * len(incoming)
+
+    from datetime import date as date_type
+    for idx, t in enumerate(incoming):
         try:
             tx_date = date_type.fromisoformat(t["date_iso"])
         except (ValueError, KeyError):
@@ -289,12 +297,11 @@ async def import_transactions(request: Request, current_user=Depends(get_current
                 direction=t.get("direction", "OUT"),
                 is_redacted=t.get("is_redacted", False),
                 category_source=t.get("category_source", "auto"),
+                embedding=embeddings[idx] if idx < len(embeddings) else None,
             )
         db.add(txn)
 
     await db.commit()
-    _coach_cache.pop(str(user_id), None)
-
     return {
         "status": "imported",
         "batch_id": str(batch.id),
@@ -303,8 +310,49 @@ async def import_transactions(request: Request, current_user=Depends(get_current
     }
 
 
-@app.patch("/api/transactions/{txn_id}/category")
-async def update_transaction_category(txn_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
+    """Apply a partial-update dict to a Transaction. Returns the changes applied."""
+    changes = {}
+    if "category" in data and data["category"] is not None:
+        txn.category = str(data["category"])
+        txn.category_source = "manual"
+        changes["category"] = txn.category
+    if "direction" in data and data["direction"] is not None:
+        d = str(data["direction"]).upper()
+        if d not in ("IN", "OUT"):
+            raise HTTPException(400, "direction must be 'IN' or 'OUT'")
+        txn.direction = d
+        changes["direction"] = d
+    if "amount" in data and data["amount"] is not None:
+        try:
+            amt = round(float(data["amount"]), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "amount must be a number")
+        if amt <= 0:
+            raise HTTPException(400, "amount must be > 0")
+        txn.amount = amt
+        changes["amount"] = amt
+    if "merchant" in data and data["merchant"] is not None:
+        m = str(data["merchant"]).strip()
+        if m:
+            txn.merchant = m[:255]
+            changes["merchant"] = txn.merchant
+            # Phase 12D: re-embed when merchant changes so KNN learns the corrected name.
+            try:
+                txn.embedding = embed_text(txn.merchant)
+            except Exception:
+                pass  # never block a category fix on embedding failure
+    if "description" in data and data["description"] is not None:
+        txn.description = str(data["description"])
+        changes["description"] = txn.description
+    return changes
+
+
+@app.patch("/api/transactions/{txn_id}")
+async def update_transaction(txn_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Partial-update a transaction. Accepts any subset of:
+       category, direction (IN|OUT), amount, merchant, description.
+       Phase 11A: replaces the older /category-only PATCH."""
     data = await request.json()
     user_id = uuid.UUID(current_user["user_id"])
     result = await db.execute(
@@ -313,11 +361,42 @@ async def update_transaction_category(txn_id: str, request: Request, current_use
     txn = result.scalar_one_or_none()
     if not txn:
         raise HTTPException(404, "Transaction not found")
-
-    txn.category = data.get("category", txn.category)
-    txn.category_source = "manual"
+    changes = await _apply_txn_patch(txn, data)
     await db.commit()
-    return {"status": "updated", "id": txn_id, "category": txn.category}
+    return {"status": "updated", "id": txn_id, "changes": changes}
+
+
+@app.patch("/api/transactions/{txn_id}/category")
+async def update_transaction_category(txn_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Legacy alias kept for backward compatibility with older clients."""
+    return await update_transaction(txn_id, request, current_user, db)
+
+
+@app.post("/api/transactions/batch-update")
+async def batch_update_transactions(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Phase 11C: apply the same patch to many transactions at once.
+    Body: {ids: [str], changes: {category?, direction?, amount?, merchant?, description?}}
+    """
+    data = await request.json()
+    ids = data.get("ids") or []
+    changes = data.get("changes") or {}
+    if not ids or not changes:
+        raise HTTPException(400, "ids and changes are required")
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        uuid_ids = [uuid.UUID(i) for i in ids]
+    except ValueError:
+        raise HTTPException(400, "Invalid id in ids list")
+    result = await db.execute(
+        select(TxnModel).where(TxnModel.id.in_(uuid_ids), TxnModel.user_id == user_id)
+    )
+    txns = result.scalars().all()
+    updated = 0
+    for t in txns:
+        await _apply_txn_patch(t, changes)
+        updated += 1
+    await db.commit()
+    return {"status": "updated", "count": updated}
 
 
 # --- Import Batch Endpoints ---
@@ -354,6 +433,148 @@ async def delete_import_batch(batch_id: str, current_user=Depends(get_current_us
     await db.delete(batch)
     await db.commit()
     return {"status": "deleted", "batch_id": batch_id}
+
+
+@app.post("/api/account/wipe-data")
+async def wipe_user_data(current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Hard-delete every transaction, batch, account, plaid item, rule, budget for the
+    current user. The User row + auth stay intact. Irreversible. (Phase 10A)"""
+    from sqlalchemy import delete as sa_delete
+    user_id = uuid.UUID(current_user["user_id"])
+
+    # FK-safe order: rows that reference others first.
+    counts = {}
+    for model, key in [
+        (TxnModel, "transactions"),
+        (CategoryRule, "rules"),
+        (Budget, "budgets"),
+        (ImportBatch, "batches"),
+        (Account, "accounts"),
+        (PlaidItem, "plaid_items"),
+    ]:
+        r = await db.execute(sa_delete(model).where(model.user_id == user_id))
+        counts[key] = r.rowcount or 0
+    await db.commit()
+
+    # Clear coach cache for this user (it's keyed by user_id string)
+    return {"status": "wiped", "deleted": counts}
+
+
+# --- Phase 10D: Account CRUD ---
+
+def _account_to_dict(a: Account, txn_count: int = 0) -> dict:
+    return {
+        "id": str(a.id),
+        "name": a.name,
+        "bank_name": a.bank_name,
+        "account_type": a.account_type,
+        "currency": a.currency,
+        "mask": a.mask,
+        "subtype": a.subtype,
+        "credit_limit": float(a.credit_limit) if a.credit_limit is not None else None,
+        "current_balance": float(a.current_balance) if a.current_balance is not None else None,
+        "available_balance": float(a.available_balance) if a.available_balance is not None else None,
+        "due_day": a.due_day,
+        "last_synced_at": a.last_synced_at.isoformat() if a.last_synced_at else None,
+        "is_plaid": a.plaid_item_id is not None,
+        "plaid_item_id": str(a.plaid_item_id) if a.plaid_item_id else None,
+        "plaid_account_id": a.plaid_account_id,
+        "transaction_count": txn_count,
+    }
+
+
+@app.get("/api/accounts")
+async def list_accounts(current_user=Depends(get_current_user), db=Depends(get_db)):
+    from sqlalchemy import func
+    user_id = uuid.UUID(current_user["user_id"])
+    accounts_r = await db.execute(select(Account).where(Account.user_id == user_id).order_by(Account.created_at))
+    accounts = accounts_r.scalars().all()
+    counts_r = await db.execute(
+        select(TxnModel.account_id, func.count(TxnModel.id)).where(TxnModel.user_id == user_id).group_by(TxnModel.account_id)
+    )
+    counts = {row[0]: row[1] for row in counts_r}
+    return [_account_to_dict(a, counts.get(a.id, 0)) for a in accounts]
+
+
+@app.post("/api/accounts")
+async def create_account(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Account name is required")
+    user_id = uuid.UUID(current_user["user_id"])
+    user = await db.get(User, user_id)
+    currency = body.get("currency") or (user.currency if user else "USD")
+    account = Account(
+        user_id=user_id,
+        name=name,
+        bank_name=body.get("bank_name") or "",
+        account_type=body.get("account_type") or "checking",
+        subtype=body.get("subtype"),
+        currency=currency,
+        credit_limit=body.get("credit_limit"),
+        due_day=body.get("due_day"),
+    )
+    db.add(account)
+    await db.commit()
+    return _account_to_dict(account, 0)
+
+
+@app.patch("/api/accounts/{account_id}")
+async def update_account(account_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        aid = uuid.UUID(account_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid account_id")
+    account = await db.get(Account, aid)
+    if not account or account.user_id != user_id:
+        raise HTTPException(404, "Account not found")
+
+    body = await request.json()
+    is_plaid = account.plaid_item_id is not None
+
+    # due_day is always editable (Plaid doesn't reliably return statement due dates)
+    if "due_day" in body:
+        d = body["due_day"]
+        if d is not None and not (1 <= int(d) <= 31):
+            raise HTTPException(400, "due_day must be between 1 and 31")
+        account.due_day = int(d) if d is not None else None
+    # name editable for any account
+    if "name" in body:
+        new_name = (body["name"] or "").strip()
+        if new_name:
+            account.name = new_name
+    # credit_limit editable only for non-Plaid accounts (Plaid is source of truth there)
+    if "credit_limit" in body and not is_plaid:
+        account.credit_limit = body["credit_limit"]
+
+    await db.commit()
+    return _account_to_dict(account, 0)
+
+
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(account_id: str, current_user=Depends(get_current_user), db=Depends(get_db)):
+    from sqlalchemy import func, delete as sa_delete
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        aid = uuid.UUID(account_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid account_id")
+    account = await db.get(Account, aid)
+    if not account or account.user_id != user_id:
+        raise HTTPException(404, "Account not found")
+    if account.plaid_item_id is not None:
+        raise HTTPException(409, "This account is linked to a Plaid bank. Use Plaid Disconnect to remove it.")
+
+    # Cascade-delete transactions and import batches for this account
+    txn_count_r = await db.execute(select(func.count(TxnModel.id)).where(TxnModel.account_id == aid))
+    txn_count = txn_count_r.scalar_one()
+    await db.execute(sa_delete(TxnModel).where(TxnModel.account_id == aid))
+    await db.execute(sa_delete(ImportBatch).where(ImportBatch.account_id == aid))
+    await db.delete(account)
+    await db.commit()
+    return {"status": "deleted", "transactions_removed": txn_count}
 
 
 @app.get("/api/summary")
@@ -419,108 +640,44 @@ async def upload_csv(file: UploadFile = File(...)):
     }
 
 
-# --- AI Coaching Endpoint ---
+# --- Phase 12E: Local Stats Coach (replaces 3 Claude coaching endpoints) ---
 
-@app.post("/api/coaching/plan")
-async def get_coaching_plan(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
-    """Generate a personalized financial coaching plan from user's transactions."""
+from src.stats_coach import compute_stats
+
+
+@app.get("/api/coaching/stats")
+async def get_coaching_stats(user=Depends(get_current_user), db=Depends(get_db)):
+    """Deterministic financial stats. No LLM, no outbound calls. Replaces /coaching/plan*."""
     user_id = uuid.UUID(user["user_id"])
-
-    # Fetch user record for currency + name
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user_row = user_result.scalar_one_or_none()
+    user_row = await db.get(User, user_id)
     if not user_row:
         raise HTTPException(404, "User not found")
-
-    # Fetch transactions
-    txn_result = await db.execute(
+    txn_rows = await db.execute(
         select(TxnModel).where(TxnModel.user_id == user_id).order_by(TxnModel.date.desc())
     )
-    txns = txn_result.scalars().all()
-    if not txns:
-        raise HTTPException(400, "No transactions found. Import a bank statement first.")
-
     transactions = [{
         "date_iso": t.date.isoformat(),
-        "description": t.description,
         "merchant": t.merchant,
+        "description": t.description,
         "category": t.category,
-        "type": t.type or "",
         "money_in": float(t.amount) if t.direction == "IN" else 0,
         "money_out": float(t.amount) if t.direction == "OUT" else 0,
-        "balance": float(t.balance) if t.balance else None,
         "direction": t.direction,
-    } for t in txns if not t.is_redacted and not t.encrypted_data]
-
-    if not transactions:
-        raise HTTPException(400, "No unencrypted transactions available for coaching.")
-
-    # Optional debt info from request body
-    body = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-    debt_info = body.get("debt_info")
-
-    result = await generate_plan(
-        transactions=transactions,
-        user_currency=user_row.currency or "$",
-        user_name=user_row.name or "",
-        debt_info=debt_info,
-    )
-    return result
+    } for t in txn_rows.scalars().all() if not t.is_redacted and not t.encrypted_data]
+    return compute_stats(transactions, user_row.currency or "$")
 
 
+# --- Local Categorization Endpoint ---
 
-@app.get("/api/coaching/plan-cached")
-async def get_cached_plan(user=Depends(get_current_user)):
-    """Return cached coaching plan if fresh."""
-    cache_key = str(uuid.UUID(user["user_id"]))
-    if cache_key in _coach_cache:
-        plan_data, cached_at = _coach_cache[cache_key]
-        if _time.time() - cached_at < COACH_CACHE_TTL:
-            return {"cached": True, "cached_at": cached_at, **plan_data}
-    raise HTTPException(404, "No cached plan")
+@app.post("/api/categorize-local")
+async def categorize_local(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Phase 12D: local merchant categorization. ZERO outbound network calls.
 
-
-@app.post("/api/coaching/plan-stream")
-async def stream_coaching_plan(request: Request, user=Depends(get_current_user), db=Depends(get_db)):
-    """Stream coaching plan tokens via SSE."""
-    user_id = uuid.UUID(user["user_id"])
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user_row = user_result.scalar_one_or_none()
-    if not user_row:
-        raise HTTPException(404, "User not found")
-    result = await db.execute(select(TxnModel).where(TxnModel.user_id == user_id))
-    txns = result.scalars().all()
-    transactions = [{"date_iso": str(t.date), "description": t.description or "", "merchant": t.merchant or "", "category": t.category or "Other", "type": t.type or "", "amount": float(t.amount or 0), "money_in": float(t.amount) if t.direction == "IN" else 0, "money_out": float(t.amount) if t.direction != "IN" else 0, "balance": float(t.balance) if t.balance else None, "direction": t.direction} for t in txns if not t.is_redacted and not t.encrypted_data]
-
-    if not transactions:
-        async def empty():
-            yield f"data: {json.dumps({'error': 'No transactions'})}\n\n"
-        return StreamingResponse(empty(), media_type="text/event-stream")
-
-    body = {}
-    try: body = await request.json()
-    except: pass
-
-    async def event_stream():
-        plan_result = None
-        async for chunk in generate_plan_stream(transactions, user_row.currency or "$", user_row.name or "", body.get("debt_info")):
-            if "done" in chunk and chunk["done"]:
-                plan_result = chunk
-                _coach_cache[str(user_id)] = (chunk, _time.time())
-            yield f"data: {json.dumps(chunk)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-# --- AI Categorization Endpoint ---
-
-@app.post("/api/categorize-ai")
-async def categorize_ai(request: Request):
-    """Use AI to categorize unknown transactions in bulk.
+    Tier walk per item:
+      1. User's own JSON rules (existing _match_rule)
+      2. Vector KNN over the user's manually-categorized history (categorize_local.py)
+      3. Starter pack of common UK + US merchants (starter_rules.py)
+      4. 'Income' if direction == IN, else 'Other'
 
     Body: {"items": [{"merchant": str, "direction": "IN"|"OUT", "amount": float}, ...]}
     Returns: {"categories": {"<merchant>|<direction>": "Category", ...}}
@@ -529,16 +686,35 @@ async def categorize_ai(request: Request):
     items = body.get("items", [])
     if not isinstance(items, list):
         raise HTTPException(400, "items must be a list of objects")
-    if len(items) > 50:
-        raise HTTPException(400, "Maximum 50 items per request")
+    if len(items) > 200:
+        raise HTTPException(400, "Maximum 200 items per request")
     for it in items:
         if not isinstance(it, dict) or "merchant" not in it or "direction" not in it:
             raise HTTPException(400, "each item needs merchant and direction fields")
         if it["direction"] not in ("IN", "OUT"):
             raise HTTPException(400, "direction must be 'IN' or 'OUT'")
 
-    categories = await categorize_merchants(items)
-    return {"categories": categories}
+    user_id = uuid.UUID(current_user["user_id"])
+    user_rules = _load_rules()
+    out: dict[str, str] = {}
+    for it in items:
+        merchant = (it.get("merchant") or "").strip()
+        direction = it["direction"]
+        key = f"{merchant}|{direction}"
+        # Tier 1: user-defined JSON rules
+        cat = next((r.get("category") for r in user_rules if _match_rule(r, merchant)), None)
+        # Tier 2: vector KNN over user's manually-categorized history
+        if not cat:
+            cat = await categorize_by_neighbors(user_id, merchant, direction, db)
+        # Tier 3: starter pack -- OUT-direction only. Starter merchants are all
+        # spend-side (Tesco, Wingstop, Spotify); applying to IN would mis-categorize salary.
+        if not cat and direction == "OUT":
+            cat = match_starter_rule(merchant)
+        # Tier 4: direction-aware fallback
+        if not cat:
+            cat = "Income" if direction == "IN" else "Other"
+        out[key] = cat
+    return {"categories": out}
 
 
 # --- Category Rules Endpoints ---
@@ -704,7 +880,8 @@ from datetime import datetime as _dt, timezone as _tz
 async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> dict:
     """Pull new/modified/removed transactions from Plaid for one Item.
 
-    Reuses the existing ImportBatch + Transaction insert pattern.
+    Phase 10C: routes transactions to one Account row per Plaid account_id
+    (e.g. checking + credit card from same bank get separate Account rows).
     """
     from datetime import date as date_type
 
@@ -715,6 +892,7 @@ async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> 
     access_token = ps.decrypt_token(item.access_token_encrypted)
 
     all_added, all_modified, all_removed = [], [], []
+    plaid_accounts_latest: dict[str, dict] = {}  # plaid_account_id -> account dict (last seen wins)
     cursor = item.sync_cursor
     iterations = 0
     while True:
@@ -725,46 +903,102 @@ async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> 
         all_added.extend(result["added"])
         all_modified.extend(result["modified"])
         all_removed.extend(result["removed"])
+        for a in result.get("accounts", []) or []:
+            aid = a.get("account_id")
+            if aid:
+                plaid_accounts_latest[aid] = a
         cursor = result["next_cursor"]
         if not result["has_more"]:
             break
 
-    # Get-or-create Account row
-    account_name = item.institution_name or "Bank Account"
-    account_result = await db.execute(
-        select(Account).where(Account.user_id == user_id, Account.name == account_name)
-    )
-    account = account_result.scalar_one_or_none()
-    if not account:
-        account = Account(user_id=user_id, name=account_name, bank_name=item.institution_name or "")
-        db.add(account)
+    # Look up user currency once -- single currency per user (Phase 10 rule)
+    user = await db.get(User, user_id)
+    user_currency = (user.currency if user else None) or "USD"
+
+    # Get-or-create one Account per Plaid account_id
+    account_id_map: dict[str, uuid.UUID] = {}  # plaid_account_id -> Account.id
+    for plaid_acc_id, acc in plaid_accounts_latest.items():
+        balances = acc.get("balances") or {}
+        # Try existing per-account row first
+        r = await db.execute(select(Account).where(Account.plaid_account_id == plaid_acc_id))
+        account = r.scalar_one_or_none()
+        if account is None:
+            display_name = acc.get("name") or acc.get("official_name") or item.institution_name or "Bank Account"
+            account = Account(
+                user_id=user_id,
+                name=display_name,
+                bank_name=item.institution_name or "",
+                account_type=acc.get("type") or "depository",
+                currency=user_currency,
+                plaid_account_id=plaid_acc_id,
+                plaid_item_id=item.id,
+                mask=acc.get("mask"),
+                subtype=acc.get("subtype"),
+                credit_limit=balances.get("limit"),
+                current_balance=balances.get("current"),
+                available_balance=balances.get("available"),
+                last_synced_at=_dt.now(_tz.utc),
+            )
+            db.add(account)
+            await db.flush()
+        else:
+            # Refresh Plaid-sourced fields. Leave user-editable fields (due_day, name) alone.
+            account.mask = acc.get("mask") or account.mask
+            account.subtype = acc.get("subtype") or account.subtype
+            account.credit_limit = balances.get("limit") if balances.get("limit") is not None else account.credit_limit
+            account.current_balance = balances.get("current") if balances.get("current") is not None else account.current_balance
+            account.available_balance = balances.get("available") if balances.get("available") is not None else account.available_balance
+            account.plaid_item_id = item.id
+            account.last_synced_at = _dt.now(_tz.utc)
+        account_id_map[plaid_acc_id] = account.id
+
+    # Fallback Account if a transaction has no matching plaid_account_id (rare)
+    fallback_account_id = next(iter(account_id_map.values()), None)
+    if fallback_account_id is None:
+        # No accounts returned by sync (very first run with no transactions yet) -- create a stub
+        stub = Account(
+            user_id=user_id,
+            name=item.institution_name or "Bank Account",
+            bank_name=item.institution_name or "",
+            currency=user_currency,
+            plaid_item_id=item.id,
+        )
+        db.add(stub)
         await db.flush()
+        fallback_account_id = stub.id
 
     sp_added = [ps.plaid_txn_to_spendscope(t) for t in all_added]
 
+    # Group transactions by target Account so each gets its own ImportBatch
+    by_account: dict[uuid.UUID, list[dict]] = {}
+    for t in sp_added:
+        target_id = account_id_map.get(t.get("_plaid_account_id"), fallback_account_id)
+        by_account.setdefault(target_id, []).append(t)
+
     inserted = 0
-    if sp_added:
+    for acct_id, txns in by_account.items():
+        if not txns:
+            continue
         batch = ImportBatch(
             user_id=user_id,
-            account_id=account.id,
+            account_id=acct_id,
             plaid_item_id=item.id,
             source_filename=f"Plaid: {item.institution_name or 'Bank'}",
             source_type="plaid",
             bank_name=item.institution_name or "",
-            transaction_count=len(sp_added),
+            transaction_count=len(txns),
             status="confirmed",
         )
         db.add(batch)
         await db.flush()
-
-        for t in sp_added:
+        for t in txns:
             try:
                 tx_date = date_type.fromisoformat(t["date_iso"])
             except (ValueError, KeyError):
                 continue
             txn = TxnModel(
                 import_batch_id=batch.id,
-                account_id=account.id,
+                account_id=acct_id,
                 user_id=user_id,
                 date=tx_date,
                 description=t.get("description", ""),
@@ -786,9 +1020,7 @@ async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> 
     item.last_synced_at = _dt.now(_tz.utc)
     await db.commit()
 
-    _coach_cache.pop(str(user_id), None)
-
-    return {"added": inserted, "modified": len(all_modified), "removed": len(all_removed)}
+    return {"added": inserted, "modified": len(all_modified), "removed": len(all_removed), "accounts": len(account_id_map)}
 
 
 @app.post("/api/plaid/link-token")

@@ -1,7 +1,9 @@
 version: '3.8'
 services:
   db:
-    image: postgres:16-alpine
+    # Phase 12A: pgvector/pgvector:pg16 = postgres:16 + pgvector extension pre-installed.
+    # Same Postgres 16 internals + on-disk format -- existing pgdata volume reused.
+    image: pgvector/pgvector:pg16
     container_name: spendscope_db
     environment:
       POSTGRES_USER: spendscope

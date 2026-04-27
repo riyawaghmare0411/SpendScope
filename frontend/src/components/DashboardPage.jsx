@@ -1,9 +1,17 @@
 import { ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts'
 import { Counter, Sphere, Tip, PieTip } from './ui'
 import { COLORS, CAT_COLORS, fmt, fmtShort } from '../constants'
+import AccountCardsRow from './AccountCardsRow'
+import RemainingMonthWidget from './RemainingMonthWidget'
+import AlertBanner from './AlertBanner'
+import useAlerts from '../hooks/useAlerts'
 
-export const DashboardPage = ({ t, mode, currency, dc, lc, userName, monthlyAvg, catData, lifeSpend, monthCount, net, totalIn, totalOut, filteredData, weekDiff, weekLabel, thisWeekSpend, weekPct, dData, chartRange, setChartRange, mData, topM, recentTxns, handleExportPDF, cashFlowChart, forecastMonths }) => {
+export const DashboardPage = ({ t, mode, currency, dc, lc, userName, monthlyAvg, catData, lifeSpend, monthCount, net, totalIn, totalOut, filteredData, weekDiff, weekLabel, thisWeekSpend, weekPct, dData, chartRange, setChartRange, mData, topM, recentTxns, handleExportPDF, cashFlowChart, forecastMonths, accounts, activeAccount, setActiveAccount, onAddCard, onEditAccount }) => {
+  const alerts = useAlerts(accounts, filteredData)
   return (<>
+            <AlertBanner t={t} alerts={alerts} />
+            <AccountCardsRow t={t} currency={currency} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} onAddCard={onAddCard} onEditAccount={onEditAccount} />
+            <RemainingMonthWidget t={t} currency={currency} filteredData={filteredData} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
               <button onClick={handleExportPDF} style={{ padding: '8px 20px', borderRadius: '12px', border: `1px solid ${t.teal}40`, cursor: 'pointer', background: 'transparent', color: t.teal, fontSize: '12px', fontWeight: 600, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = `${t.teal}15`} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>Export PDF Report</button>
             </div>

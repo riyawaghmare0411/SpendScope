@@ -114,6 +114,18 @@ function App() {
     setData([])
   }
 
+  // Phase 10A: clear local state after a server-side wipe.
+  // Auth token + user row stay -- only data/accounts/budgets/cache get nuked.
+  const handleWipeData = () => {
+    setData([])
+    setAccounts([])
+    setActiveAccount('All')
+    setBudgets({})
+    localStorage.removeItem('spendscope_accounts')
+    localStorage.removeItem('spendscope_budgets')
+    setPage('upload')
+  }
+
   const refreshTransactions = async () => {
     if (!authToken) return
     try {
@@ -125,15 +137,26 @@ function App() {
         if (key && j.length > 0 && j[0].encrypted_data) {
           try {
             processed = await decryptTransactions(key, j.map(t => ({ iv: JSON.parse(t.encrypted_data).iv, ciphertext: JSON.parse(t.encrypted_data).ciphertext, date_iso: t.date_iso, id: t.id, import_batch_id: t.import_batch_id })))
-            processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id }))
+            processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id, account_id: j[i].account_id }))
           } catch(e) { processed = j }
         }
-        setData(processed.map(d => ({ ...d, _account: d._account || 'Primary' })))
+        setData(processed.map(d => ({ ...d, _account: d._account || 'Primary', account_id: d.account_id || null })))
       }
     } catch {}
   }
 
-  useEffect(() => { if (!authToken) { setLoading(false); return }; refreshTransactions().finally(() => setLoading(false)) }, [authToken])
+  // Phase 10D: hydrate accounts from server (single source of truth -- replaces localStorage)
+  const refreshAccounts = async () => {
+    if (!authToken) return
+    try {
+      const r = await fetch(`${API_BASE}/api/accounts`, { headers: authHeaders() })
+      if (!r.ok) return
+      const j = await r.json()
+      if (Array.isArray(j)) setAccounts(j)
+    } catch {}
+  }
+
+  useEffect(() => { if (!authToken) { setLoading(false); return }; Promise.all([refreshTransactions(), refreshAccounts()]).finally(() => setLoading(false)) }, [authToken])
   useEffect(() => { localStorage.setItem('spendscope_budgets', JSON.stringify(budgets)) }, [budgets])
   useEffect(() => { localStorage.setItem('spendscope_accounts', JSON.stringify(accounts)) }, [accounts])
 
@@ -158,11 +181,13 @@ function App() {
   const ALL_CATEGORIES = [...new Set(MERCHANT_CATEGORIES.map(([cat]) => cat).concat(['Other', 'Income', 'Salary', 'Cash', 'Coffee & Cafe', 'Entertainment', 'Electronics', 'Healthcare', 'Clothing', 'Fitness', 'Housing', 'Travel', 'Education', 'Utilities', 'Savings', 'Professional', 'Bills', 'Credit', 'Debit']))].sort()
 
   // AI-categorize any "Other" merchants, then set pending import
-  const aiCategorizeAndImport = async (tagged, bankName, filename) => {
-    // Dedup key = merchant + direction (so same merchant in/out get separate AI calls)
+  // Phase 12D: renamed from aiCategorizeAndImport. Hits the local /api/categorize-local
+  // endpoint which uses tiered rules + pgvector KNN -- no Claude, no outbound calls.
+  const localCategorizeAndImport = async (tagged, bankName, filename) => {
+    // Dedup key = merchant + direction (Wingstop salary IN vs Wingstop meal OUT)
     const directionOf = (t) => t.direction || (Number(t.money_in) > 0 ? 'IN' : 'OUT')
     const keyOf = (t) => `${t.merchant || t.description || ''}|${directionOf(t)}`
-    const seen = new Map() // key -> { merchant, direction, amount }
+    const seen = new Map()
     for (const t of tagged) {
       if (t.category !== 'Other') continue
       const k = keyOf(t)
@@ -175,11 +200,15 @@ function App() {
     const items = [...seen.values()]
     if (items.length > 0) {
       try {
-        // Batch in groups of 15 (garbled text can cause parse issues in larger batches)
+        // Local endpoint accepts up to 200 items per request -- usually one round trip
         const allCategories = {}
-        for (let i = 0; i < items.length; i += 15) {
-          const batch = items.slice(i, i + 15)
-          const r = await fetch(`${API_BASE}/api/categorize-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: batch }) })
+        for (let i = 0; i < items.length; i += 200) {
+          const batch = items.slice(i, i + 200)
+          const r = await fetch(`${API_BASE}/api/categorize-local`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ items: batch }),
+          })
           const { categories } = await r.json()
           if (categories) Object.assign(allCategories, categories)
         }
@@ -190,7 +219,7 @@ function App() {
           }
           return t
         })
-      } catch (e) { /* AI unavailable, keep rule-based categories */ }
+      } catch (e) { /* keep 'Other' if categorize-local unavailable */ }
     }
     setPendingImport({ transactions: tagged, bankName, filename })
     setUploadStatus(null)
@@ -209,7 +238,7 @@ function App() {
           if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in PDF.' }); return }
           const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
           setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-          aiCategorizeAndImport(tagged, result.bank_name || '', file.name)
+          localCategorizeAndImport(tagged, result.bank_name || '', file.name)
         })
         .catch(err => { setUploadStatus({ type: 'error', message: `PDF processing failed: ${err.message}. Make sure the backend is running.` }) })
       return
@@ -230,7 +259,7 @@ function App() {
         if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in CSV.' }); return }
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
         setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-        aiCategorizeAndImport(tagged, result.bank_name || '', file.name)
+        localCategorizeAndImport(tagged, result.bank_name || '', file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -253,7 +282,7 @@ function App() {
             }).filter(r => r.date_iso && (r.money_in > 0 || r.money_out > 0))
             if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found in CSV.' }); return }
             setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-            aiCategorizeAndImport(mapped, '', file.name)
+            localCategorizeAndImport(mapped, '', file.name)
           },
           error: (err) => { setUploadStatus({ type: 'error', message: `Failed to read file: ${err.message}` }) }
         })
@@ -277,7 +306,7 @@ function App() {
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
         setShowColumnMapper(null)
         setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-        aiCategorizeAndImport(tagged, result.bank_name || mapperBankName, file.name)
+        localCategorizeAndImport(tagged, result.bank_name || mapperBankName, file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -295,7 +324,7 @@ function App() {
             if (mapped.length === 0) { setUploadStatus({ type: 'error', message: 'No valid transactions found with this mapping.' }); return }
             setShowColumnMapper(null)
             setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-            aiCategorizeAndImport(mapped, mapperBankName, file.name)
+            localCategorizeAndImport(mapped, mapperBankName, file.name)
           },
           error: () => setUploadStatus({ type: 'error', message: 'Failed to parse file with mapping.' })
         })
@@ -327,7 +356,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(importPayload)
-      }).catch(console.error)
+      }).then(() => refreshAccounts()).catch(console.error)
     }
     setPendingImport(null)
     setImportSelectedRows(new Set())
@@ -412,7 +441,8 @@ function App() {
   const allDatesRaw = data.map(d => d.date_iso).filter(Boolean).sort()
   const rawMaxDate = allDatesRaw.length > 0 ? new Date(allDatesRaw[allDatesRaw.length - 1] + 'T00:00:00') : new Date()
   const dateFilteredData = globalRange === 'All' ? data : (() => { const cutoff = new Date(rawMaxDate); if (globalRange === '1D') cutoff.setDate(cutoff.getDate() - 1); else if (globalRange === '1W') cutoff.setDate(cutoff.getDate() - 7); else { const m = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12 }; cutoff.setMonth(cutoff.getMonth() - (m[globalRange] || 1)) }; return data.filter(d => d.date_iso >= cutoff.toISOString().slice(0, 10)) })()
-  const filteredData = activeAccount === 'All' ? dateFilteredData : dateFilteredData.filter(d => d._account === activeAccount)
+  const activeAccountId = activeAccount === 'All' ? null : (accounts.find(a => a.name === activeAccount)?.id || null)
+  const filteredData = activeAccount === 'All' ? dateFilteredData : dateFilteredData.filter(d => d._account === activeAccount || (activeAccountId && d.account_id === activeAccountId))
   const out = filteredData.filter(d => d.direction === 'OUT'), inc = filteredData.filter(d => d.direction === 'IN')
   const totalOut = out.reduce((s, x) => s + x.money_out, 0), totalIn = inc.reduce((s, x) => s + x.money_in, 0), net = totalIn - totalOut
   const allDates = filteredData.map(d => d.date_iso).filter(Boolean).sort()
@@ -579,7 +609,7 @@ function App() {
       )}
 
       {showProfile && (
-        <ProfileModal t={t} authUser={authUser} showProfile={showProfile} setShowProfile={setShowProfile} profileInputRef={profileInputRef} authToken={authToken} authHeaders={authHeaders} setAuthUser={setAuthUser} API_BASE={API_BASE} userName={userName} setUserName={setUserName} handleLogout={handleLogout} Sphere={Sphere} />
+        <ProfileModal t={t} authUser={authUser} showProfile={showProfile} setShowProfile={setShowProfile} profileInputRef={profileInputRef} authToken={authToken} authHeaders={authHeaders} setAuthUser={setAuthUser} API_BASE={API_BASE} userName={userName} setUserName={setUserName} handleLogout={handleLogout} Sphere={Sphere} onWipeData={handleWipeData} />
       )}
 
       <Sidebar t={t} mode={mode} setMode={setMode} page={page} setPage={setPage} globalRange={globalRange} setGlobalRange={setGlobalRange} currency={currency} setCurrency={setCurrency} CURRENCIES={CURRENCIES} NAV={NAV} userName={userName} setShowProfile={setShowProfile} handleLogout={handleLogout} insightsSeen={insightsSeen} setInsightsSeen={setInsightsSeen} anomalies={anomalies} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} />
@@ -598,7 +628,7 @@ function App() {
           </div>
 
           {page === 'overview' && (
-            <DashboardPage t={t} mode={mode} currency={currency} dc={dc} lc={lc} userName={userName} monthlyAvg={monthlyAvg} catData={catData} lifeSpend={lifeSpend} monthCount={monthCount} net={net} totalIn={totalIn} totalOut={totalOut} filteredData={filteredData} weekDiff={weekDiff} weekLabel={weekLabel} thisWeekSpend={thisWeekSpend} weekPct={weekPct} dData={dData} chartRange={chartRange} setChartRange={setChartRange} mData={mData} topM={topM} recentTxns={recentTxns} handleExportPDF={handleExportPDF} cashFlowChart={cashFlowChart} forecastMonths={forecastMonths} />
+            <DashboardPage t={t} mode={mode} currency={currency} dc={dc} lc={lc} userName={userName} monthlyAvg={monthlyAvg} catData={catData} lifeSpend={lifeSpend} monthCount={monthCount} net={net} totalIn={totalIn} totalOut={totalOut} filteredData={filteredData} weekDiff={weekDiff} weekLabel={weekLabel} thisWeekSpend={thisWeekSpend} weekPct={weekPct} dData={dData} chartRange={chartRange} setChartRange={setChartRange} mData={mData} topM={topM} recentTxns={recentTxns} handleExportPDF={handleExportPDF} cashFlowChart={cashFlowChart} forecastMonths={forecastMonths} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} onAddCard={() => setPage('upload')} onEditAccount={(a) => { const due = prompt(`Set payment due day (1-31) for ${a.name}, or blank to clear:`, a.due_day || ''); if (due === null) return; const v = due.trim() === '' ? null : parseInt(due, 10); fetch(`${API_BASE}/api/accounts/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ due_day: v }) }).then(() => refreshAccounts()) }} />
           )}
 
           {page === 'spending' && (
@@ -610,7 +640,7 @@ function App() {
           )}
 
           {page === 'transactions' && (
-            <TransactionsPage t={t} currency={currency} lc={lc} filteredData={filteredData} data={data} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterCat={filterCat} setFilterCat={setFilterCat} catTotals={catTotals} editingTxnCat={editingTxnCat} setEditingTxnCat={setEditingTxnCat} flashedTxnIdx={flashedTxnIdx} setFlashedTxnIdx={setFlashedTxnIdx} setData={setData} ALL_CATEGORIES={ALL_CATEGORIES} />
+            <TransactionsPage t={t} currency={currency} lc={lc} filteredData={filteredData} data={data} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterCat={filterCat} setFilterCat={setFilterCat} catTotals={catTotals} editingTxnCat={editingTxnCat} setEditingTxnCat={setEditingTxnCat} flashedTxnIdx={flashedTxnIdx} setFlashedTxnIdx={setFlashedTxnIdx} setData={setData} ALL_CATEGORIES={ALL_CATEGORIES} API_BASE={API_BASE} authHeaders={authHeaders} />
           )}
 
           {page === 'calendar' && (
@@ -630,7 +660,7 @@ function App() {
           )}
 
           {page === 'upload' && (
-            <UploadPage t={t} currency={currency} uploadStatus={uploadStatus} setUploadStatus={setUploadStatus} pendingImport={pendingImport} setPendingImport={setPendingImport} showColumnMapper={showColumnMapper} setShowColumnMapper={setShowColumnMapper} importSelectedRows={importSelectedRows} setImportSelectedRows={setImportSelectedRows} editingCell={editingCell} setEditingCell={setEditingCell} columnMapping={columnMapping} setColumnMapping={setColumnMapping} columnDateFormat={columnDateFormat} setColumnDateFormat={setColumnDateFormat} mapperBankName={mapperBankName} setMapperBankName={setMapperBankName} mapperSaveTemplate={mapperSaveTemplate} setMapperSaveTemplate={setMapperSaveTemplate} uploadAccountName={uploadAccountName} setUploadAccountName={setUploadAccountName} handleConfirmImport={handleConfirmImport} handleColumnMapperSubmit={handleColumnMapperSubmit} handleCancelImport={handleCancelImport} handleFileUpload={handleFileUpload} dragOver={dragOver} setDragOver={setDragOver} fileInputRef={fileInputRef} data={data} setData={setData} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} fmt={fmt} lc={lc} Sphere={Sphere} setPage={setPage} toggleImportRow={toggleImportRow} toggleAllImportRows={toggleAllImportRows} deleteSelectedImportRows={deleteSelectedImportRows} updatePendingTransaction={updatePendingTransaction} refreshTransactions={refreshTransactions} />
+            <UploadPage t={t} currency={currency} uploadStatus={uploadStatus} setUploadStatus={setUploadStatus} pendingImport={pendingImport} setPendingImport={setPendingImport} showColumnMapper={showColumnMapper} setShowColumnMapper={setShowColumnMapper} importSelectedRows={importSelectedRows} setImportSelectedRows={setImportSelectedRows} editingCell={editingCell} setEditingCell={setEditingCell} columnMapping={columnMapping} setColumnMapping={setColumnMapping} columnDateFormat={columnDateFormat} setColumnDateFormat={setColumnDateFormat} mapperBankName={mapperBankName} setMapperBankName={setMapperBankName} mapperSaveTemplate={mapperSaveTemplate} setMapperSaveTemplate={setMapperSaveTemplate} uploadAccountName={uploadAccountName} setUploadAccountName={setUploadAccountName} handleConfirmImport={handleConfirmImport} handleColumnMapperSubmit={handleColumnMapperSubmit} handleCancelImport={handleCancelImport} handleFileUpload={handleFileUpload} dragOver={dragOver} setDragOver={setDragOver} fileInputRef={fileInputRef} data={data} setData={setData} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} fmt={fmt} lc={lc} Sphere={Sphere} setPage={setPage} toggleImportRow={toggleImportRow} toggleAllImportRows={toggleAllImportRows} deleteSelectedImportRows={deleteSelectedImportRows} updatePendingTransaction={updatePendingTransaction} refreshTransactions={refreshTransactions} refreshAccounts={refreshAccounts} />
           )}
         </div>
       </div>

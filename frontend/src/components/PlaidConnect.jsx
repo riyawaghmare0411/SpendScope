@@ -3,12 +3,24 @@ import { usePlaidLink } from 'react-plaid-link'
 import { API_BASE } from '../constants'
 
 /**
+ * Inner launcher: only mounted once we have a non-null linkToken so
+ * usePlaidLink isn't initialized on every render of the parent (which
+ * causes the "Plaid script embedded more than once" warning and re-creates
+ * the Plaid factory unnecessarily). Auto-opens as soon as `ready` flips true.
+ */
+const PlaidLauncher = ({ linkToken, onSuccess, onExit }) => {
+  const { open, ready } = usePlaidLink({ token: linkToken, onSuccess, onExit })
+  useEffect(() => { if (ready) open() }, [ready, open])
+  return null
+}
+
+/**
  * Plaid Connect component.
  *
  * Flow:
  *   1. On mount: GET /api/plaid/items to list connected banks
  *   2. User clicks "Connect Bank" -> POST /api/plaid/link-token -> get link_token
- *   3. usePlaidLink({token: link_token}) -> open() -> Plaid modal
+ *   3. PlaidLauncher mounts with token -> usePlaidLink -> open() -> Plaid modal
  *   4. onSuccess(public_token, metadata) -> POST /api/plaid/exchange-token -> backend syncs
  *   5. Refresh items list + signal parent to re-fetch transactions
  *
@@ -34,6 +46,7 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
   useEffect(() => { fetchItems() }, [fetchItems])
 
   const fetchLinkToken = async () => {
+    if (!authToken) { setError('Please log in to connect a bank'); return }
     setLoading(true); setError(null)
     try {
       const r = await fetch(`${API_BASE}/api/plaid/link-token`, {
@@ -41,11 +54,13 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
         headers: { 'Content-Type': 'application/json', ...authHeaders() }
       })
       if (r.status === 503) { setUnavailable(true); setLoading(false); return }
-      if (!r.ok) { setError('Could not start bank connection'); setLoading(false); return }
+      if (r.status === 401) { setError('Session expired -- please log in again'); setLoading(false); return }
+      if (!r.ok) { setError(`Could not start bank connection (HTTP ${r.status})`); setLoading(false); return }
       const data = await r.json()
+      if (!data.link_token) { setError('Bank connection unavailable -- missing token'); setLoading(false); return }
       setLinkToken(data.link_token)
     } catch (e) {
-      setError('Network error')
+      setError(`Network error: ${e.message || 'unable to reach server'}`)
       setLoading(false)
     }
   }
@@ -74,15 +89,7 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
     setLinkToken(null)
   }, [authHeaders, fetchItems, onSyncComplete])
 
-  const { open, ready } = usePlaidLink({
-    token: linkToken,
-    onSuccess: onPlaidSuccess,
-    onExit: () => { setLoading(false); setLinkToken(null) },
-  })
-
-  useEffect(() => {
-    if (linkToken && ready) open()
-  }, [linkToken, ready, open])
+  const onPlaidExit = useCallback(() => { setLoading(false); setLinkToken(null) }, [])
 
   const syncOne = async (itemId) => {
     setSyncing(itemId)
@@ -132,6 +139,7 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
 
   return (
     <div style={{ ...glass, marginBottom: '20px' }}>
+      {linkToken && <PlaidLauncher linkToken={linkToken} onSuccess={onPlaidSuccess} onExit={onPlaidExit} />}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length > 0 ? '14px' : '0' }}>
         <div>
           <h3 style={{ fontSize: '16px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>

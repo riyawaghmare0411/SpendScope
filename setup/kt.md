@@ -84,6 +84,9 @@ npm run dev
 4. **UK-centric data**: Demo data and merchant mappings are UK-focused. Expanding to global (US, India, Georgia).
 5. **Modular frontend**: App.jsx refactored from 1524 to 538 lines (M6). Shared constants in constants.js, reusable UI primitives in components/ui.jsx, 11 page/layout components in components/.
 6. **Template-based bank parsing**: 24 bank templates in src/parsers/templates/ covering UK (7), US (8), India (5), Georgia (2), Global (2). Templates define column mappings and header patterns for auto-detection. New banks are added by creating a JSON template file.
+7. **One Account per Plaid account_id** (Phase 10): `_sync_plaid_item` creates one Account row per Plaid `account_id` (previously one-per-Item). Each Plaid account in an Item gets its own ImportBatch + Account with mask/subtype/balances/credit_limit refreshed every sync. PlaidItem.accounts back-populates with `ON DELETE CASCADE`.
+8. **Idempotent ALTER TABLE migration strategy** (Phase 10): `src/database.py` runs `ADD COLUMN IF NOT EXISTS` block after `metadata.create_all` on every startup (Postgres 9.6+). Avoids Alembic dependency for additive schema changes; safe to re-run.
+9. **Manual due_day entry** (Phase 10): Plaid does not surface statement/due dates reliably, so the Account.due_day column is user-entered via the AccountCardsRow edit button. Powers the due-date countdown and "due in <= 7 days" alert.
 
 ## Roadmap (Active Plan)
 See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
@@ -94,6 +97,7 @@ See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
 - M4: PostgreSQL + auth (email + Google/GitHub OAuth)
 - M5: Cloud deployment (Railway + Vercel) -- DONE
 - M6: Component refactor + polish -- DONE
+- Phase 10: Multi-card unified dashboard + data wipe -- DONE
 
 ## API Endpoints (Current)
 | Method | Path | Description |

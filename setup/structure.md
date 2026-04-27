@@ -109,6 +109,18 @@ SpendScope/
 
 ## Changelog
 
+### 2026-04-27 -- Phase 10: Multi-Card Unified Dashboard + Data Wipe (commit 904cb75)
+- Backend (src/api.py): new endpoints POST /api/account/wipe-data (hard-deletes transactions/batches/accounts/rules/budgets/plaid_items for current user; user row + auth preserved), GET /api/accounts (list with balance/utilization/due_day/tx count), POST /api/accounts (manual non-Plaid create), PATCH /api/accounts/{id} (update name/due_day/credit_limit; Plaid fields locked when Plaid-linked), DELETE /api/accounts/{id} (non-Plaid only; Plaid-linked must use Disconnect)
+- Backend (src/api.py): `_sync_plaid_item` refactored to create one Account row per Plaid account_id (was one-per-Item). Each Plaid account gets its own ImportBatch + Account with mask/subtype/balances/credit_limit refreshed each sync. GET /api/transactions response now includes account_id
+- Backend models (src/models.py): added 9 columns to Account (plaid_account_id, plaid_item_id FK to plaid_items ON DELETE CASCADE, mask, subtype, credit_limit, current_balance, available_balance, due_day, last_synced_at). PlaidItem.accounts back-populates
+- Backend DB migration (src/database.py): idempotent ALTER TABLE block runs after metadata.create_all on every startup (ADD COLUMN IF NOT EXISTS, Postgres 9.6+)
+- Frontend NEW: frontend/src/components/AccountCardsRow.jsx (horizontal scrolling glass tile per Account: mask, balance, credit utilization bar with green/amber/red thresholds at 50%/80%, due-date countdown, click-to-filter, "+ Add Card" tile, edit-due-day button)
+- Frontend NEW: frontend/src/components/RemainingMonthWidget.jsx ("X left this month", projected EOM, daily allowance, spend bar; reads filteredData)
+- Frontend NEW: frontend/src/components/AlertBanner.jsx (dismissible glass-pill banners; per-day dismissal via localStorage key spendscope_dismissed_alerts)
+- Frontend NEW: frontend/src/hooks/useAlerts.js (derives alerts from accounts + filteredData; three sources: credit utilization >= 80%, due in <= 7 days, on-pace overspend)
+- Frontend MODIFIED: App.jsx (new refreshAccounts() hydrates from /api/accounts on auth + after import + after Plaid sync; replaces localStorage as source of truth, still writes localStorage for legacy; new handleWipeData callback; filteredData now matches by account_id OR _account name)
+- Frontend MODIFIED: DashboardPage.jsx (AlertBanner + AccountCardsRow + RemainingMonthWidget at top), ProfileModal.jsx (Danger Zone with two-step "type WIPE" confirmation), UploadPage.jsx (onPlaidSync calls both refreshTransactions + refreshAccounts)
+
 ### 2026-03-30 -- Milestone 6: Component Refactor
 - Split App.jsx from 1524 lines to 538 lines (65% reduction), zero functionality changes
 - Created constants.js (165 lines): all shared constants, themes, helpers, formatters extracted from App.jsx

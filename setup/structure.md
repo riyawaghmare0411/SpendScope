@@ -109,6 +109,25 @@ SpendScope/
 
 ## Changelog
 
+### 2026-04-27 -- Phase 11 + Phase 12: Editable Transactions + Local Vector Categorization + Stats Coach (commit d8f33ea)
+- **Phase 11 -- Editable Transactions**
+- Backend (src/api.py): PATCH /api/transactions/{id} now accepts any subset of {category, direction, amount, merchant, description} (was /category only). New POST /api/transactions/batch-update for "apply to all matching merchants". New helper `_apply_txn_patch()` shared between single PATCH and batch-update
+- Frontend NEW: frontend/src/components/EditTransactionModal.jsx (direction toggle IN/OUT, category dropdown, merchant rename, amount edit, "apply to all matching merchants" checkbox)
+- Frontend MODIFIED: TransactionsPage.jsx -- click any row opens EditTransactionModal (was inline-only category dropdown)
+- Bug fix: previous inline category edit only updated React state + localStorage, never called the backend. Now persists via PATCH
+- **Phase 12 -- Privacy: Local Vector Categorization + Stats Coach (replaces Claude)**
+- Database: docker-compose.yml switched from `postgres:16-alpine` to `pgvector/pgvector:pg16` (same Postgres 16, volume preserved). Added `embedding vector(384)` column on transactions + HNSW index. Idempotent ALTER TABLE block in src/database.py runs on startup
+- Backend NEW: src/categorize_local.py (lazy fastembed singleton with `BAAI/bge-small-en-v1.5`, 384-dim ONNX, ~80MB; embed_text, embed_many, categorize_by_neighbors using cosine distance via pgvector `<=>`. Direction-aware. Only learns from `category_source='manual'` rows)
+- Backend NEW: src/starter_rules.py (~80 UK + US merchant keyword rules: Tesco, Wingstop, Spotify, Walmart, Starbucks, etc. OUT-direction only -- IN merchants default to Income)
+- Backend NEW endpoint: POST /api/categorize-local (4-tier walk: user JSON rules -> vector KNN -> starter pack OUT-only -> Income/Other fallback)
+- Backend MODIFIED: /api/transactions/import batch-embeds merchant strings before insert; `_apply_txn_patch` re-embeds when merchant changes (every Phase 11 manual edit teaches the matcher)
+- Backend NEW: src/stats_coach.py (deterministic financial summary: savings rate, monthly avg in/out, top categories, top merchants this month, projected EOM, daily allowance, week-over-week change, encouragement message. Pure Python, no LLM. ~20ms for 10k txns)
+- Backend NEW endpoint: GET /api/coaching/stats (replaces 3 Claude endpoints: /coaching/plan, /plan-stream, /plan-cached)
+- Frontend MODIFIED: CoachPage.jsx rewritten as glassmorphism stats display (hero card with savings rate %, 3 stat cards in/out/projected EOM, this-month detail with weekly change pill, Recharts horizontal BarChart of top categories, top merchants list. No streaming, no orb, no LLM)
+- Frontend MODIFIED: `aiCategorizeAndImport` -> `localCategorizeAndImport` (hits /api/categorize-local with auth headers; was unauthenticated /api/categorize-ai)
+- DELETED: src/ai_coach.py (501 lines). Removed `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` from .env + .env.example. Removed `_coach_cache`, `COACH_CACHE_TTL`, `StreamingResponse` import, `_time` import from api.py
+- Dependencies: added `fastembed==0.7.4` and `pgvector==0.4.1` to requirements.prod.txt. httpx package stays for Plaid only
+
 ### 2026-04-27 -- Phase 10: Multi-Card Unified Dashboard + Data Wipe (commit 904cb75)
 - Backend (src/api.py): new endpoints POST /api/account/wipe-data (hard-deletes transactions/batches/accounts/rules/budgets/plaid_items for current user; user row + auth preserved), GET /api/accounts (list with balance/utilization/due_day/tx count), POST /api/accounts (manual non-Plaid create), PATCH /api/accounts/{id} (update name/due_day/credit_limit; Plaid fields locked when Plaid-linked), DELETE /api/accounts/{id} (non-Plaid only; Plaid-linked must use Disconnect)
 - Backend (src/api.py): `_sync_plaid_item` refactored to create one Account row per Plaid account_id (was one-per-Item). Each Plaid account gets its own ImportBatch + Account with mask/subtype/balances/credit_limit refreshed each sync. GET /api/transactions response now includes account_id

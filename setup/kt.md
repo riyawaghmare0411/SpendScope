@@ -87,6 +87,13 @@ npm run dev
 7. **One Account per Plaid account_id** (Phase 10): `_sync_plaid_item` creates one Account row per Plaid `account_id` (previously one-per-Item). Each Plaid account in an Item gets its own ImportBatch + Account with mask/subtype/balances/credit_limit refreshed every sync. PlaidItem.accounts back-populates with `ON DELETE CASCADE`.
 8. **Idempotent ALTER TABLE migration strategy** (Phase 10): `src/database.py` runs `ADD COLUMN IF NOT EXISTS` block after `metadata.create_all` on every startup (Postgres 9.6+). Avoids Alembic dependency for additive schema changes; safe to re-run.
 9. **Manual due_day entry** (Phase 10): Plaid does not surface statement/due dates reliably, so the Account.due_day column is user-entered via the AccountCardsRow edit button. Powers the due-date countdown and "due in <= 7 days" alert.
+10. **Single Postgres container for relational + vector data** (Phase 12): switched docker-compose.yml from `postgres:16-alpine` to `pgvector/pgvector:pg16` (same Postgres 16, volume preserved). One DB, one consistency model, simpler backups -- no separate vector store.
+11. **KNN learns only from manual edits** (Phase 12): `categorize_by_neighbors` filters to `category_source='manual'` rows so the matcher cannot amplify its own auto-categorizations into mistakes. Every Phase 11 PATCH re-embeds and teaches the matcher.
+12. **Direction-aware categorization throughout** (Phase 12): merchant string alone never decides category. Wingstop salary IN vs Wingstop meal OUT must yield different categories, so KNN, starter rules, and PATCH logic all gate on direction.
+13. **Starter pack is OUT-only** (Phase 12): `src/starter_rules.py` (~80 UK + US merchant keywords) applies only to OUT direction. IN-direction defaults to Income unless KNN finds a real neighbor -- avoids miscategorizing salary deposits as "Groceries" when payer name happens to match Tesco.
+14. **Embedding model: bge-small-en-v1.5 via fastembed** (Phase 12): 384-dim English embeddings, MIT license, ~80MB. Uses fastembed (ONNX runtime) instead of sentence-transformers (PyTorch) -- 4x smaller install, fits Railway image budget. Lazy singleton -- only loads on first `/api/categorize-local` call.
+15. **Stats coach replaces LLM coach** (Phase 12): `src/stats_coach.py` is deterministic Python (savings rate, monthly avg, top categories/merchants, projected EOM, daily allowance, week-over-week, encouragement). ~20ms for 10k txns, no API key, no streaming. Path A (local Ollama LLM) deferred -- adds onboarding friction for marginal benefit over hard numbers.
+16. **Zero outbound calls to Anthropic** (Phase 12): `src/ai_coach.py` deleted (501 lines), `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` removed from .env + .env.example, `_coach_cache` / `COACH_CACHE_TTL` / `StreamingResponse` import removed from api.py. The httpx package stays only because Plaid uses it (and Plaid is opt-in -- manual CSV/PDF upload remains the privacy-max alternative).
 
 ## Roadmap (Active Plan)
 See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
@@ -98,6 +105,8 @@ See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
 - M5: Cloud deployment (Railway + Vercel) -- DONE
 - M6: Component refactor + polish -- DONE
 - Phase 10: Multi-card unified dashboard + data wipe -- DONE
+- Phase 11: Editable Transactions -- DONE
+- Phase 12: Local Vector Categorization + Stats Coach (Claude removal) -- DONE
 
 ## API Endpoints (Current)
 | Method | Path | Description |

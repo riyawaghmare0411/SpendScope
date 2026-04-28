@@ -648,7 +648,7 @@ function App() {
           )}
 
           {page === 'calendar' && (
-            <CalendarPage t={t} currency={currency} lc={lc} calendarMonth={calendarMonth} setCalendarMonth={setCalendarMonth} subPredictions={subPredictions} />
+            <CalendarPage t={t} currency={currency} lc={lc} calendarMonth={calendarMonth} setCalendarMonth={setCalendarMonth} subPredictions={subPredictions} filteredData={filteredData} />
           )}
 
           {page === 'insights' && (

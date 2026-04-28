@@ -60,6 +60,25 @@ export const DashboardPage = ({ t, mode, currency, dc, lc, userName, monthlyAvg,
                 </div>
               </div>
             </div>
+            {/* Phase 14C: Cash Flow Forecast moved up so it's visible without scrolling.
+                Empty state when we don't have enough months of data for a meaningful forecast. */}
+            <div style={{ ...lc, marginBottom: '24px' }}>
+              <h2 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 16px' }}>Cash Flow Forecast</h2>
+              {monthCount < 2 ? (
+                <div style={{ height: '180px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '6px' }}>
+                  <p style={{ fontSize: '13px', fontWeight: 600, color: t.text, margin: 0 }}>Need at least 2 months of data for a meaningful forecast</p>
+                  <p style={{ fontSize: '12px', color: t.textMuted, margin: 0, maxWidth: '380px' }}>
+                    You currently have {monthCount} month{monthCount === 1 ? '' : 's'} of data. Import another statement (or wait for next month's Plaid sync) and the projection will appear here.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={260}><AreaChart data={cashFlowChart}><defs><linearGradient id="gInc" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.teal} stopOpacity={0.3} /><stop offset="100%" stopColor={t.teal} stopOpacity={0.02} /></linearGradient><linearGradient id="gSpd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.sand} stopOpacity={0.3} /><stop offset="100%" stopColor={t.sand} stopOpacity={0.02} /></linearGradient></defs><XAxis dataKey="month" stroke={t.textMuted} fontSize={10} tickLine={false} axisLine={false} /><YAxis stroke={t.textMuted} fontSize={10} tickLine={false} axisLine={false} /><Tooltip content={<Tip currency={currency} />} /><Area type="monotone" dataKey="income" stroke={t.teal} strokeWidth={2} fill="url(#gInc)" name="Income" /><Area type="monotone" dataKey="spending" stroke={t.sand} strokeWidth={2} fill="url(#gSpd)" name="Spending" /></AreaChart></ResponsiveContainer>
+                  <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginTop: '8px' }}>{[{ l: 'Income', c: t.teal }, { l: 'Spending', c: t.sand }, { l: 'Forecast', c: t.textMuted }].map((x, i) => <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: t.textLight }}><div style={{ width: '10px', height: '10px', borderRadius: '3px', background: x.c, border: i === 2 ? '1px dashed' : 'none' }} />{x.l}</div>)}</div>
+                  <p style={{ fontSize: '10px', color: t.textMuted, textAlign: 'center', margin: '8px 0 0' }}>Last {forecastMonths.length} months are projected based on your spending patterns</p>
+                </>
+              )}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '20px', marginBottom: '24px' }}>
               <div style={dc}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -84,12 +103,6 @@ export const DashboardPage = ({ t, mode, currency, dc, lc, userName, monthlyAvg,
                 <h2 style={{ fontSize: '15px', fontWeight: 600, color: t.cardAltText, margin: '0 0 20px' }}>Top Merchants</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>{topM.map((m, i) => <div key={i}><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ fontSize: '13px', color: t.cardAltText, fontWeight: 500 }}>{m.name}</span><span style={{ fontSize: '13px', color: t.sand, fontWeight: 700 }}>{currency}{fmt(m.value)}</span></div><div style={{ height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' }}><div style={{ height: '100%', borderRadius: '3px', width: `${(m.value / topM[0].value) * 100}%`, background: `linear-gradient(90deg, ${t.tealDark}, ${t.mint})`, boxShadow: `0 0 8px ${t.teal}30`, transition: 'width 0.8s ease' }} /></div></div>)}</div>
               </div>
-            </div>
-            <div style={{ ...lc, marginTop: '24px' }}>
-              <h2 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 16px' }}>Cash Flow Forecast</h2>
-              <ResponsiveContainer width="100%" height={260}><AreaChart data={cashFlowChart}><defs><linearGradient id="gInc" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.teal} stopOpacity={0.3} /><stop offset="100%" stopColor={t.teal} stopOpacity={0.02} /></linearGradient><linearGradient id="gSpd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={t.sand} stopOpacity={0.3} /><stop offset="100%" stopColor={t.sand} stopOpacity={0.02} /></linearGradient></defs><XAxis dataKey="month" stroke={t.textMuted} fontSize={10} tickLine={false} axisLine={false} /><YAxis stroke={t.textMuted} fontSize={10} tickLine={false} axisLine={false} /><Tooltip content={<Tip currency={currency} />} /><Area type="monotone" dataKey="income" stroke={t.teal} strokeWidth={2} fill="url(#gInc)" name="Income" /><Area type="monotone" dataKey="spending" stroke={t.sand} strokeWidth={2} fill="url(#gSpd)" name="Spending" /></AreaChart></ResponsiveContainer>
-              <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginTop: '8px' }}>{[{ l: 'Income', c: t.teal }, { l: 'Spending', c: t.sand }, { l: 'Forecast', c: t.textMuted }].map((x, i) => <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: t.textLight }}><div style={{ width: '10px', height: '10px', borderRadius: '3px', background: x.c, border: i === 2 ? '1px dashed' : 'none' }} />{x.l}</div>)}</div>
-              <p style={{ fontSize: '10px', color: t.textMuted, textAlign: 'center', margin: '8px 0 0' }}>Last {forecastMonths.length} months are projected based on your spending patterns</p>
             </div>
   </>)
 }

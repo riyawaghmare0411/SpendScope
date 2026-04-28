@@ -1,14 +1,35 @@
 import { useState, useEffect } from 'react'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts'
-import { API_BASE as DEFAULT_API_BASE, CAT_COLORS, fmt, fmtShort } from '../constants'
+import { API_BASE as DEFAULT_API_BASE, fmt, fmtShort } from '../constants'
 
-// Phase 12E: Stats Coach. No streaming, no LLM, no outbound calls.
-// All math runs server-side in src/stats_coach.py (or could move to client) and
-// returns instantly. Replaces the previous Claude-streaming CoachPage.
+// Phase 14D: Coach is now the action tracker, not a stats dashboard.
+// Stats live on Dashboard / Spending / Insights / Merchants -- this page is
+// dedicated to specific actions ranked by impact, with mark-done tracking.
+
+const DONE_STORAGE_KEY = 'spendscope_done_actions'
+
+function loadDone() {
+  try {
+    const raw = localStorage.getItem(DONE_STORAGE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw)
+  } catch { return {} }
+}
+function saveDone(state) {
+  try { localStorage.setItem(DONE_STORAGE_KEY, JSON.stringify(state)) } catch {}
+}
+
+const PRIORITY_BORDER = {
+  high: '#ef4444',
+  medium: '#f59e0b',
+  low: '#10b981',
+}
+
 export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE: apiBase, userName }) => {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [doneState, setDoneState] = useState(loadDone)
+  const [expanded, setExpanded] = useState({})
   const base = apiBase || DEFAULT_API_BASE
 
   const fetchStats = async () => {
@@ -20,16 +41,17 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE:
         const j = await r.json().catch(() => ({}))
         throw new Error(j.detail || `HTTP ${r.status}`)
       }
-      const j = await r.json()
-      setStats(j)
+      setStats(await r.json())
     } catch (e) {
-      setError(e.message || 'Could not load stats')
-    } finally {
-      setLoading(false)
-    }
+      setError(e.message || 'Could not load action plan')
+    } finally { setLoading(false) }
   }
 
   useEffect(() => { if (authToken && data.length > 0) fetchStats() }, [authToken, data.length])
+  useEffect(() => { saveDone(doneState) }, [doneState])
+
+  const toggleDone = (id) => setDoneState(d => ({ ...d, [id]: !d[id] }))
+  const toggleExpand = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }))
 
   const glass = {
     background: t.card,
@@ -42,183 +64,190 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE:
     position: 'relative',
     overflow: 'hidden',
   }
-  const label = { fontSize: '11px', fontWeight: 700, color: t.textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', margin: 0 }
 
+  // No data yet
   if (data.length === 0 || stats?.empty) {
     return (
       <div style={{ ...glass, textAlign: 'center', padding: '60px 28px' }}>
-        <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}>{'\u{1F4CA}'}</div>
-        <h2 style={{ fontSize: '18px', fontWeight: 600, color: t.text, margin: '0 0 8px' }}>No data yet</h2>
-        <p style={{ fontSize: '14px', color: t.textMuted, margin: 0 }}>Import some transactions first to see your stats.</p>
+        <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}>{'\u{1F3AF}'}</div>
+        <h2 style={{ fontSize: '18px', fontWeight: 600, color: t.text, margin: '0 0 8px' }}>Action plan unlocks with data</h2>
+        <p style={{ fontSize: '14px', color: t.textMuted, margin: 0 }}>
+          Import a few weeks of transactions to see what's worth working on.
+        </p>
       </div>
     )
   }
-
   if (loading && !stats) {
-    return (
-      <div style={{ ...glass, textAlign: 'center', padding: '60px 28px' }}>
-        <p style={{ color: t.textMuted, fontSize: '13px', margin: 0 }}>Crunching the numbers...</p>
-      </div>
-    )
+    return <div style={{ ...glass, textAlign: 'center', padding: '60px 28px' }}>
+      <p style={{ color: t.textMuted, fontSize: '13px', margin: 0 }}>Reading your spending...</p>
+    </div>
   }
-
   if (error && !stats) {
-    return (
-      <div style={{ ...glass, textAlign: 'center', padding: '48px 28px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: 600, color: t.text, margin: '0 0 8px' }}>Stats unavailable</h3>
-        <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>{error}</p>
-      </div>
-    )
+    return <div style={{ ...glass, textAlign: 'center', padding: '48px 28px' }}>
+      <h3 style={{ fontSize: '16px', fontWeight: 600, color: t.text, margin: '0 0 8px' }}>Couldn't load actions</h3>
+      <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>{error}</p>
+    </div>
   }
-
   if (!stats) return null
 
+  const actions = stats.action_plan || []
+  const wins = stats.wins || []
   const tm = stats.this_month || {}
-  const savingsRate = stats.savings_rate_pct || 0
-  const projectedEOM = tm.projected_eom || 0
-  const projectingShortfall = projectedEOM < 0
-  const heroColor = savingsRate >= 15 ? t.green : (savingsRate >= 0 ? t.teal : t.red)
-  const weekChange = stats.week_change_pct || 0
+  const totalUndoneImpact = actions
+    .filter(a => !doneState[a.id] && a.impact_period === 'month')
+    .reduce((s, a) => s + (a.impact_amount || 0), 0)
 
-  // Recharts data for top categories
-  const catChartData = (stats.top_categories || []).map(c => ({
-    name: c.name,
-    value: c.total,
-    color: CAT_COLORS[c.name] || t.teal,
-  }))
+  const allDone = actions.length > 0 && actions.every(a => doneState[a.id])
 
   return (<>
-    {/* Header */}
+    {/* Compact header -- no big stat hero (those live on Dashboard) */}
     <div style={{ marginBottom: '20px' }}>
-      <h2 style={{ fontSize: '22px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>
-        Your money, {userName || 'friend'}
+      <h2 style={{ fontSize: '20px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>
+        Your moves this week, {userName || 'there'}
       </h2>
       <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>
-        Computed locally on every visit -- nothing leaves your device.
+        Specific actions ranked by impact. Tick them off as you do them. All math runs on your device.
       </p>
     </div>
 
-    {/* HERO: savings rate */}
-    <div style={{
-      ...glass,
-      marginBottom: '20px',
-      padding: '32px 28px',
-      textAlign: 'center',
-      background: t.gradient || `linear-gradient(135deg, ${t.tealDark}, ${t.accentPurple || t.tealDeep})`,
-      border: 'none',
-    }}>
-      <p style={{ ...label, color: 'rgba(255,255,255,0.7)' }}>Savings Rate</p>
-      <p style={{ fontSize: '64px', fontWeight: 800, color: '#ffffff', margin: '6px 0 0', letterSpacing: '-3px', lineHeight: 1 }}>
-        {savingsRate.toFixed(0)}<span style={{ fontSize: '24px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>%</span>
-      </p>
-      <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.85)', margin: '12px 0 0', fontWeight: 500 }}>
-        {stats.encouragement}
-      </p>
-      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', margin: '4px 0 0' }}>
-        Based on {stats.n_months_data} month{stats.n_months_data === 1 ? '' : 's'} of data
-      </p>
-    </div>
-
-    {/* Top row: 3 stat cards (in / out / projected EOM) */}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
-      <div style={{ ...glass, padding: '20px' }}>
-        <p style={label}>Monthly Avg In</p>
-        <p style={{ fontSize: '24px', fontWeight: 700, color: t.green, margin: '8px 0 0', letterSpacing: '-0.5px' }}>
-          {currency}{fmtShort(stats.monthly_avg_in)}
+    {/* Total potential savings strip -- light, just one line */}
+    {totalUndoneImpact > 0 && (
+      <div style={{
+        ...glass,
+        marginBottom: '16px',
+        padding: '14px 20px',
+        background: `linear-gradient(135deg, ${t.tealDark}25, ${t.tealDeep || t.tealDark}40)`,
+        border: `1px solid ${t.teal}30`,
+      }}>
+        <p style={{ fontSize: '11px', color: t.textMuted, margin: '0 0 2px', letterSpacing: '0.5px', textTransform: 'uppercase', fontWeight: 700 }}>Potential savings if you act</p>
+        <p style={{ fontSize: '20px', fontWeight: 800, color: t.teal, margin: 0, letterSpacing: '-0.3px' }}>
+          {currency}{fmt(totalUndoneImpact, 0)}<span style={{ fontSize: '12px', fontWeight: 500, color: t.textMuted, marginLeft: '6px' }}>/ month</span>
         </p>
-      </div>
-      <div style={{ ...glass, padding: '20px' }}>
-        <p style={label}>Monthly Avg Out</p>
-        <p style={{ fontSize: '24px', fontWeight: 700, color: t.red, margin: '8px 0 0', letterSpacing: '-0.5px' }}>
-          {currency}{fmtShort(stats.monthly_avg_out)}
-        </p>
-      </div>
-      <div style={{ ...glass, padding: '20px' }}>
-        <p style={label}>Projected EOM</p>
-        <p style={{ fontSize: '24px', fontWeight: 700, color: projectingShortfall ? t.red : t.green, margin: '8px 0 0', letterSpacing: '-0.5px' }}>
-          {projectingShortfall ? '-' : '+'}{currency}{fmtShort(Math.abs(projectedEOM))}
-        </p>
-        <p style={{ fontSize: '11px', color: t.textMuted, margin: '4px 0 0' }}>
-          {tm.days_remaining} day{tm.days_remaining === 1 ? '' : 's'} left
-        </p>
-      </div>
-    </div>
-
-    {/* This month detail */}
-    <div style={{ ...glass, marginBottom: '20px', padding: '20px 24px' }}>
-      <p style={{ ...label, marginBottom: '12px' }}>This Month</p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <p style={{ fontSize: '13px', color: t.textLight, margin: 0 }}>
-            Earned <strong style={{ color: t.green }}>{currency}{fmt(tm.in)}</strong>
-            {' \u00B7 '}Spent <strong style={{ color: t.red }}>{currency}{fmt(tm.out)}</strong>
-          </p>
-          {tm.days_remaining > 0 && tm.daily_allowance > 0 && (
-            <p style={{ fontSize: '12px', color: t.textMuted, margin: '4px 0 0' }}>
-              {currency}{fmt(tm.daily_allowance)}/day for the next {tm.days_remaining} day{tm.days_remaining === 1 ? '' : 's'} keeps you even
-            </p>
-          )}
-        </div>
-        {weekChange !== 0 && (
-          <div style={{
-            padding: '6px 12px',
-            borderRadius: '12px',
-            background: weekChange > 0 ? `${t.red}15` : `${t.green}15`,
-            border: `1px solid ${weekChange > 0 ? t.red : t.green}40`,
-          }}>
-            <p style={{ fontSize: '11px', color: t.textMuted, margin: 0 }}>vs last week</p>
-            <p style={{ fontSize: '14px', fontWeight: 700, color: weekChange > 0 ? t.red : t.green, margin: 0 }}>
-              {weekChange > 0 ? '+' : ''}{weekChange.toFixed(0)}%
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-
-    {/* Top categories chart */}
-    {catChartData.length > 0 && (
-      <div style={{ ...glass, marginBottom: '20px', padding: '20px 24px' }}>
-        <p style={{ ...label, marginBottom: '14px' }}>Where Your Money Went</p>
-        <ResponsiveContainer width="100%" height={Math.max(180, catChartData.length * 36)}>
-          <BarChart data={catChartData} layout="vertical" margin={{ top: 4, right: 24, left: 4, bottom: 4 }}>
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" width={120} tick={{ fill: t.textMuted, fontSize: 12 }} axisLine={false} tickLine={false} />
-            <Tooltip
-              contentStyle={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: '10px', color: t.text }}
-              formatter={(v) => [`${currency}${fmt(v)}`, 'Spent']}
-              cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-            />
-            <Bar dataKey="value" radius={[0, 8, 8, 0]}>
-              {catChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
       </div>
     )}
 
-    {/* Top merchants this month */}
-    {(stats.top_merchants || []).length > 0 && (
-      <div style={{ ...glass, marginBottom: '20px', padding: '20px 24px' }}>
-        <p style={{ ...label, marginBottom: '14px' }}>Top Merchants This Month</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {stats.top_merchants.map((m, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '10px', background: `${t.teal}06` }}>
-              <p style={{ fontSize: '13px', color: t.text, margin: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.name}</p>
-              <p style={{ fontSize: '13px', color: t.red, margin: 0, fontWeight: 700, marginLeft: '12px' }}>-{currency}{fmt(m.total)}</p>
+    {/* Empty action plan -- nothing to fix, that's actually good */}
+    {actions.length === 0 && (
+      <div style={{ ...glass, textAlign: 'center', padding: '36px 28px', marginBottom: '16px' }}>
+        <div style={{ fontSize: '36px', marginBottom: '10px' }}>{'\u2728'}</div>
+        <h3 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 6px' }}>Nothing flagged right now</h3>
+        <p style={{ fontSize: '13px', color: t.textMuted, margin: 0 }}>
+          Your spending looks balanced -- no overspend, no category way above typical, no obvious subs to review. Keep going.
+        </p>
+      </div>
+    )}
+
+    {/* All-done celebration */}
+    {allDone && (
+      <div style={{
+        ...glass,
+        marginBottom: '16px',
+        padding: '20px 24px',
+        background: `linear-gradient(135deg, ${t.green}15, ${t.green}30)`,
+        border: `1px solid ${t.green}50`,
+        textAlign: 'center',
+      }}>
+        <p style={{ fontSize: '15px', fontWeight: 700, color: t.green, margin: 0 }}>
+          {'\u2713'} All actions checked off this week. Nice work.
+        </p>
+      </div>
+    )}
+
+    {/* Action cards */}
+    {actions.length > 0 && (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+        {actions.map(a => {
+          const isDone = !!doneState[a.id]
+          const isExpanded = !!expanded[a.id]
+          const borderColor = isDone ? `${t.green}50` : (PRIORITY_BORDER[a.priority] || t.border)
+
+          return (
+            <div key={a.id} style={{
+              ...glass,
+              padding: '18px 20px',
+              borderLeft: `4px solid ${borderColor}`,
+              opacity: isDone ? 0.55 : 1,
+              transition: 'opacity 0.3s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                <div style={{ fontSize: '28px', lineHeight: 1, paddingTop: '2px' }}>{a.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: '12px', color: t.textMuted, fontWeight: 600, margin: '0 0 2px', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
+                    {a.title}{a.category && a.category !== a.title ? ` \u00B7 ${a.category}` : ''}
+                  </p>
+                  <p style={{ fontSize: '15px', fontWeight: 700, color: t.text, margin: 0, textDecoration: isDone ? 'line-through' : 'none' }}>
+                    {a.action_text}
+                  </p>
+                  <p style={{ fontSize: '12px', color: t.textMuted, margin: '4px 0 0' }}>
+                    Impact: <strong style={{ color: t.teal }}>{currency}{fmt(a.impact_amount, 0)}</strong> / {a.impact_period}
+                  </p>
+                  {isExpanded && a.detail && (
+                    <p style={{ fontSize: '13px', color: t.textLight, margin: '12px 0 0', lineHeight: 1.5, paddingTop: '10px', borderTop: `1px solid ${t.border}` }}>
+                      {a.detail}
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button onClick={() => toggleDone(a.id)} style={{
+                      padding: '6px 14px',
+                      borderRadius: '10px',
+                      border: `1px solid ${isDone ? t.green : t.border}`,
+                      background: isDone ? `${t.green}20` : 'transparent',
+                      color: isDone ? t.green : t.textLight,
+                      fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                    }}>
+                      {isDone ? '\u2713 Done' : 'Mark done'}
+                    </button>
+                    {a.detail && (
+                      <button onClick={() => toggleExpand(a.id)} style={{
+                        padding: '6px 14px',
+                        borderRadius: '10px',
+                        border: `1px solid ${t.border}`,
+                        background: 'transparent',
+                        color: t.teal,
+                        fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                      }}>
+                        {isExpanded ? 'Hide details' : 'Why?'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
+          )
+        })}
+      </div>
+    )}
+
+    {/* What's working */}
+    {wins.length > 0 && (
+      <div style={{ ...glass, padding: '16px 20px', marginBottom: '16px', background: `${t.green}06`, border: `1px solid ${t.green}25` }}>
+        <p style={{ fontSize: '11px', fontWeight: 700, color: t.textMuted, margin: '0 0 8px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>What's working</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {wins.map((w, i) => (
+            <p key={i} style={{ fontSize: '13px', color: t.text, margin: 0, paddingLeft: '20px', position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 0, top: 0, color: t.green }}>{'\u2713'}</span>
+              {w}
+            </p>
           ))}
         </div>
       </div>
     )}
 
-    {/* Refresh button */}
-    <div style={{ textAlign: 'center', marginTop: '12px' }}>
+    {/* Footer: subtle reference to daily allowance, not a whole card */}
+    {tm.daily_allowance > 0 && tm.days_remaining > 0 && (
+      <p style={{ fontSize: '12px', color: t.textMuted, margin: '4px 0 16px', textAlign: 'center' }}>
+        Spend {currency}{fmt(tm.daily_allowance)}/day for the next {tm.days_remaining} day{tm.days_remaining === 1 ? '' : 's'} to stay on track this month.
+      </p>
+    )}
+
+    {/* Refresh */}
+    <div style={{ textAlign: 'center', marginTop: '4px' }}>
       <button onClick={fetchStats} disabled={loading} style={{
         padding: '8px 18px', borderRadius: '20px',
         border: `1px solid ${t.border}`, background: 'transparent', color: t.teal,
         fontSize: '12px', fontWeight: 600,
         cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.5 : 1,
-      }}>{loading ? 'Refreshing...' : 'Refresh'}</button>
+      }}>{loading ? 'Refreshing...' : 'Refresh actions'}</button>
     </div>
   </>)
 }

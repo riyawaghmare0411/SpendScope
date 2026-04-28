@@ -178,7 +178,11 @@ function App() {
 
   useEffect(() => { if (uploadStatus?.type === 'success') { const timer = setTimeout(() => setUploadStatus(null), 5000); return () => clearTimeout(timer) } }, [uploadStatus])
 
-  const ALL_CATEGORIES = [...new Set(MERCHANT_CATEGORIES.map(([cat]) => cat).concat(['Other', 'Income', 'Salary', 'Cash', 'Coffee & Cafe', 'Entertainment', 'Electronics', 'Healthcare', 'Clothing', 'Fitness', 'Housing', 'Travel', 'Education', 'Utilities', 'Savings', 'Professional', 'Bills', 'Credit', 'Debit']))].sort()
+  // Phase 14A: derive ALL_CATEGORIES from CAT_COLORS (single source of truth) so every
+  // category the categorizer can produce (Eating Out, Groceries, Transport, etc.) is
+  // selectable in the edit modal + Rules page. Add Salary as an Income synonym + Insurance
+  // for Plaid mapping coverage.
+  const ALL_CATEGORIES = [...new Set([...Object.keys(CAT_COLORS), 'Salary', 'Insurance'])].sort()
 
   // AI-categorize any "Other" merchants, then set pending import
   // Phase 12D: renamed from aiCategorizeAndImport. Hits the local /api/categorize-local

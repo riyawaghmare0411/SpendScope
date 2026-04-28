@@ -20,6 +20,27 @@ PEER_BENCHMARKS = {
     "Travel": 4, "Electronics": 3, "Food Delivery": 4, "Other": 5,
 }
 
+# Map currency codes -> display symbols. The user's stored currency on the User
+# row is a code like "GBP" / "USD"; the action card text should use the symbol.
+_CURRENCY_SYMBOLS = {
+    "GBP": "\u00A3",  # GBP
+    "USD": "$",
+    "EUR": "\u20AC",  # EUR
+    "INR": "\u20B9",  # INR
+    "JPY": "\u00A5",
+    "CNY": "\u00A5",
+    "AUD": "A$",
+    "CAD": "C$",
+}
+
+
+def _to_symbol(currency: str) -> str:
+    """Return the display symbol for a currency code, or the input if it's already a symbol."""
+    if not currency:
+        return "$"
+    s = currency.strip()
+    return _CURRENCY_SYMBOLS.get(s.upper(), s)
+
 # Icons per category for action card visuals
 _CATEGORY_ICONS = {
     "Eating Out": "\U0001F354",       # burger
@@ -184,6 +205,9 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
     if not transactions:
         return []
 
+    # Convert currency code -> symbol for user-facing strings
+    sym = _to_symbol(user_currency)
+
     out_txns = [t for t in transactions if t.get("direction") == "OUT"]
     in_txns = [t for t in transactions if t.get("direction") == "IN"]
     if not out_txns:
@@ -196,12 +220,19 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
 
     actions: list[dict] = []
 
+    # Categories that aren't actionable -- recommending the user "cut back on
+    # Other" is meaningless because Other is the uncategorized bucket. Same for
+    # Income/Salary/Transfers (not real spending).
+    UNACTIONABLE = {"Other", "Income", "Salary", "Transfers", "Cash", "Credit", "Debit"}
+
     # Action 1: any spending category materially above peer benchmark
     cat_totals: Counter = Counter()
     for t in out_txns:
         cat_totals[t.get("category") or "Other"] += float(t.get("money_out") or 0)
     if monthly_in > 0:
         for cat, total in cat_totals.most_common():
+            if cat in UNACTIONABLE:
+                continue
             monthly_cat = total / n_months
             cat_pct = (monthly_cat / monthly_in) * 100
             benchmark = PEER_BENCHMARKS.get(cat)
@@ -215,13 +246,13 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
                 "id": f"reduce:{cat}",
                 "icon": _CATEGORY_ICONS.get(cat, "\U0001F4B0"),
                 "title": f"Cut back on {cat}",
-                "action_text": f"Save {user_currency}{savings:.0f}/month by trimming {cat}",
+                "action_text": f"Save {sym}{savings:.0f}/month by trimming {cat}",
                 "impact_amount": round(savings, 0),
                 "impact_period": "month",
                 "detail": (
                     f"You spend {cat_pct:.0f}% of income on {cat}. Typical for this category is around {benchmark}%. "
-                    f"Bringing it down to typical levels would free up {user_currency}{savings:.0f} per month "
-                    f"({user_currency}{savings*12:.0f}/year)."
+                    f"Bringing it down to typical levels would free up {sym}{savings:.0f} per month "
+                    f"({sym}{savings*12:.0f}/year)."
                 ),
                 "priority": "high" if savings > 100 else "medium",
                 "category": cat,
@@ -244,13 +275,13 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
             "id": "pace:overspend",
             "icon": "\u26A0\uFE0F",
             "title": "On pace to overspend this month",
-            "action_text": f"Trim {user_currency}{needed_cut_per_day:.0f}/day for the next {days_left} day{'s' if days_left != 1 else ''} to break even",
+            "action_text": f"Trim {sym}{needed_cut_per_day:.0f}/day for the next {days_left} day{'s' if days_left != 1 else ''} to break even",
             "impact_amount": round(abs(projected_eom), 0),
             "impact_period": "this month",
             "detail": (
-                f"At your current pace ({user_currency}{pace:.0f}/day), you'll end the month "
-                f"{user_currency}{abs(projected_eom):.0f} in the red. Cutting your daily spend by "
-                f"{user_currency}{needed_cut_per_day:.0f} from now till month end balances the books."
+                f"At your current pace ({sym}{pace:.0f}/day), you'll end the month "
+                f"{sym}{abs(projected_eom):.0f} in the red. Cutting your daily spend by "
+                f"{sym}{needed_cut_per_day:.0f} from now till month end balances the books."
             ),
             "priority": "high",
             "category": None,
@@ -269,13 +300,13 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
             "id": "subs:review",
             "icon": "\U0001F4FA",
             "title": f"Review {len(subs)} recurring subscription{'s' if len(subs) > 1 else ''}",
-            "action_text": f"Save up to {user_currency}{sub_total:.0f}/month by canceling unused subs",
+            "action_text": f"Save up to {sym}{sub_total:.0f}/month by canceling unused subs",
             "impact_amount": round(avg_sub, 0),  # conservative: cancel 1
             "impact_period": "month",
             "detail": (
-                f"You're paying for: {sub_names}. Total: {user_currency}{sub_total:.0f}/month. "
-                f"Canceling just one unused subscription typically saves around {user_currency}{avg_sub:.0f}/month "
-                f"({user_currency}{avg_sub*12:.0f}/year)."
+                f"You're paying for: {sub_names}. Total: {sym}{sub_total:.0f}/month. "
+                f"Canceling just one unused subscription typically saves around {sym}{avg_sub:.0f}/month "
+                f"({sym}{avg_sub*12:.0f}/year)."
             ),
             "priority": "medium",
             "category": "Subscriptions",
@@ -290,13 +321,13 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
             "id": "fund:emergency",
             "icon": "\U0001F6E1\uFE0F",
             "title": "Start a 3-month emergency fund",
-            "action_text": f"Aim to save {user_currency}{savings_5pct:.0f}/month (~5% of income) toward a {user_currency}{target_fund:.0f} buffer",
+            "action_text": f"Aim to save {sym}{savings_5pct:.0f}/month (~5% of income) toward a {sym}{target_fund:.0f} buffer",
             "impact_amount": round(target_fund, 0),
             "impact_period": "total",
             "detail": (
-                f"A 3-month emergency fund covering {user_currency}{monthly_out:.0f}/month of expenses "
-                f"is {user_currency}{target_fund:.0f}. Setting aside 5% of income each month "
-                f"({user_currency}{savings_5pct:.0f}) gets you there in {target_fund/max(savings_5pct,1):.0f} months."
+                f"A 3-month emergency fund covering {sym}{monthly_out:.0f}/month of expenses "
+                f"is {sym}{target_fund:.0f}. Setting aside 5% of income each month "
+                f"({sym}{savings_5pct:.0f}) gets you there in {target_fund/max(savings_5pct,1):.0f} months."
             ),
             "priority": "low",
             "category": None,

@@ -656,7 +656,7 @@ function App() {
           )}
 
           {page === 'coach' && (
-            <CoachPage t={t} currency={currency} data={data} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} userName={userName || (authUser && authUser.name) || ''} />
+            <CoachPage t={t} currency={currency} data={data} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} userName={userName || (authUser && authUser.name) || ''} onSessionExpired={handleLogout} />
           )}
 
           {page === 'rules' && (

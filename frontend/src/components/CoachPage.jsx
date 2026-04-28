@@ -24,7 +24,7 @@ const PRIORITY_BORDER = {
   low: '#10b981',
 }
 
-export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE: apiBase, userName }) => {
+export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE: apiBase, userName, onSessionExpired }) => {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -37,6 +37,11 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE:
     setLoading(true); setError(null)
     try {
       const r = await fetch(`${base}/api/coaching/stats`, { headers: authHeaders() })
+      if (r.status === 401) {
+        // JWT expired -- show a friendly re-login prompt instead of a bare error
+        setError('SESSION_EXPIRED')
+        return
+      }
       if (!r.ok) {
         const j = await r.json().catch(() => ({}))
         throw new Error(j.detail || `HTTP ${r.status}`)
@@ -81,6 +86,25 @@ export const CoachPage = ({ t, currency, data, authToken, authHeaders, API_BASE:
     return <div style={{ ...glass, textAlign: 'center', padding: '60px 28px' }}>
       <p style={{ color: t.textMuted, fontSize: '13px', margin: 0 }}>Reading your spending...</p>
     </div>
+  }
+  if (error === 'SESSION_EXPIRED') {
+    return (
+      <div style={{ ...glass, textAlign: 'center', padding: '48px 28px' }}>
+        <div style={{ fontSize: '36px', marginBottom: '12px' }}>{'\u{1F512}'}</div>
+        <h3 style={{ fontSize: '16px', fontWeight: 600, color: t.text, margin: '0 0 8px' }}>Session expired</h3>
+        <p style={{ fontSize: '13px', color: t.textMuted, margin: '0 0 18px' }}>
+          Log in again to refresh your action plan. Your data is safe.
+        </p>
+        <button
+          onClick={() => { if (onSessionExpired) onSessionExpired() }}
+          style={{
+            padding: '10px 22px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+            background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white',
+            fontSize: '13px', fontWeight: 600, boxShadow: `0 4px 12px ${t.tealDark}30`,
+          }}
+        >Log in again</button>
+      </div>
+    )
   }
   if (error && !stats) {
     return <div style={{ ...glass, textAlign: 'center', padding: '48px 28px' }}>

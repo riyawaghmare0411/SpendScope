@@ -10,6 +10,13 @@ export default function ProfileModal({ t, authUser, showProfile, setShowProfile,
     setWipeStep(2); setWipeError('')
     try {
       const r = await fetch(`${API_BASE}/api/account/wipe-data`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } })
+      if (r.status === 401) {
+        // JWT expired -- log out + redirect to login (mirrors CoachPage 401 handling)
+        setWipeError('Session expired. Please log in again.')
+        setWipeStep(1)
+        setTimeout(() => { if (handleLogout) handleLogout() }, 1500)
+        return
+      }
       if (!r.ok) { setWipeError(`Wipe failed (HTTP ${r.status})`); setWipeStep(1); return }
       // reset local state via parent callback (clears React state, preserves auth token)
       if (onWipeData) onWipeData()

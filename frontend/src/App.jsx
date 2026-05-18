@@ -29,10 +29,27 @@ function App() {
   const [budgets, setBudgets] = useState(() => JSON.parse(localStorage.getItem('spendscope_budgets') || '{}')), [editingBudget, setEditingBudget] = useState(null), [budgetInputVal, setBudgetInputVal] = useState('')
   const [accounts, setAccounts] = useState(() => JSON.parse(localStorage.getItem('spendscope_accounts') || '[]')), [activeAccount, setActiveAccount] = useState('All'), [uploadAccountName, setUploadAccountName] = useState('')
   const [expandedMerchant, setExpandedMerchant] = useState(null), [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7))
-  const [pendingImport, setPendingImport] = useState(null)
+  // Phase 17: multi-file upload. Each pending import is one file's parsed transactions.
+  // Single-file upload is just an array of length 1. Each entry tracks its own selectedRows + editingCell.
+  // Shape: { id, transactions, bankName, filename, accountName, selectedRows: Set<number>, editingCell: {rowIdx, field}|null, error?: string }
+  const [pendingImports, setPendingImports] = useState([])
+  // Legacy single-import shim (used by some downstream code that expects a single object). Keep as a
+  // computed alias for the first entry until those call sites are migrated.
+  const pendingImport = pendingImports.length > 0 ? pendingImports[0] : null
+  const setPendingImport = (val) => {
+    if (val == null) setPendingImports([])
+    else setPendingImports([{ id: val.id || `legacy-${Date.now()}`, accountName: val.bankName || 'Primary', selectedRows: val.selectedRows || new Set(), editingCell: null, ...val }])
+  }
   const [showColumnMapper, setShowColumnMapper] = useState(null)
-  const [importSelectedRows, setImportSelectedRows] = useState(new Set())
-  const [editingCell, setEditingCell] = useState(null)
+  // Legacy aliases for first-entry's selectedRows / editingCell (kept so existing reads don't break)
+  const importSelectedRows = pendingImport?.selectedRows || new Set()
+  const setImportSelectedRows = (next) => {
+    setPendingImports(prev => prev.map((imp, i) => i === 0 ? { ...imp, selectedRows: typeof next === 'function' ? next(imp.selectedRows) : next } : imp))
+  }
+  const editingCell = pendingImport?.editingCell || null
+  const setEditingCell = (next) => {
+    setPendingImports(prev => prev.map((imp, i) => i === 0 ? { ...imp, editingCell: typeof next === 'function' ? next(imp.editingCell) : next } : imp))
+  }
   const [editingTxnCat, setEditingTxnCat] = useState(null)
   const [flashedTxnIdx, setFlashedTxnIdx] = useState(null)
   const [rulesVersion, setRulesVersion] = useState(0)
@@ -185,10 +202,9 @@ function App() {
   const ALL_CATEGORIES = [...new Set([...Object.keys(CAT_COLORS), 'Salary', 'Insurance'])].sort()
 
   // AI-categorize any "Other" merchants, then set pending import
-  // Phase 12D: renamed from aiCategorizeAndImport. Hits the local /api/categorize-local
-  // endpoint which uses tiered rules + pgvector KNN -- no Claude, no outbound calls.
-  const localCategorizeAndImport = async (tagged, bankName, filename) => {
-    // Dedup key = merchant + direction (Wingstop salary IN vs Wingstop meal OUT)
+  // Phase 17: now returns the categorized transactions instead of mutating state.
+  // Caller is responsible for pushing into pendingImports (multi-file) or single-mode.
+  const localCategorize = async (tagged) => {
     const directionOf = (t) => t.direction || (Number(t.money_in) > 0 ? 'IN' : 'OUT')
     const keyOf = (t) => `${t.merchant || t.description || ''}|${directionOf(t)}`
     const seen = new Map()
@@ -204,7 +220,6 @@ function App() {
     const items = [...seen.values()]
     if (items.length > 0) {
       try {
-        // Local endpoint accepts up to 200 items per request -- usually one round trip
         const allCategories = {}
         for (let i = 0; i < items.length; i += 200) {
           const batch = items.slice(i, i + 200)
@@ -225,31 +240,71 @@ function App() {
         })
       } catch (e) { /* keep 'Other' if categorize-local unavailable */ }
     }
-    setPendingImport({ transactions: tagged, bankName, filename })
+    return tagged
+  }
+
+  // Builds one pendingImports entry from parse results. Caller appends.
+  const buildPendingEntry = async (transactions, bankName, filename) => {
+    const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
+    const categorized = await localCategorize(tagged)
+    const id = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    return {
+      id,
+      transactions: categorized,
+      bankName: bankName || '',
+      filename: filename || '',
+      accountName: bankName && filename ? `${bankName} - ${filename.replace(/\.(csv|pdf)$/i, '')}` : (bankName || filename?.replace(/\.(csv|pdf)$/i, '') || 'Primary'),
+      selectedRows: new Set(),
+      editingCell: null,
+    }
+  }
+
+  // Legacy single-file path (kept for column mapper + Papa fallback that still call it)
+  const localCategorizeAndImport = async (tagged, bankName, filename) => {
+    const entry = await buildPendingEntry(tagged, bankName, filename)
+    setPendingImports(prev => [...prev, entry])
     setUploadStatus(null)
   }
 
-  const handleFileUpload = (file) => {
-    if (!file) return; const isPDF = file.name.toLowerCase().endsWith('.pdf'); const isCSV = file.name.toLowerCase().endsWith('.csv'); if (!isPDF && !isCSV) { setUploadStatus({ type: 'error', message: 'Please upload a CSV or PDF file.' }); return }
-    setUploadStatus({ type: 'loading', message: isPDF ? 'Processing PDF...' : 'Parsing CSV...' })
+  // Phase 17: accept either a single File (legacy) or File[] (multi-file).
+  // Multi-file path processes each in parallel and appends to pendingImports.
+  const handleFileUpload = (input) => {
+    if (!input) return
+    const files = Array.isArray(input) ? input : [input]
+    if (files.length > 1) {
+      // Multi-file: parse each in parallel, accumulate results
+      setUploadStatus({ type: 'loading', message: `Processing ${files.length} files...` })
+      Promise.all(files.map(f => handleSingleFile(f))).then(() => {
+        setUploadStatus(null)
+      }).catch(err => {
+        setUploadStatus({ type: 'error', message: `Multi-file upload failed: ${err.message}` })
+      })
+      return
+    }
+    handleSingleFile(files[0])
+  }
+
+  const handleSingleFile = (file) => {
+    if (!file) return Promise.resolve()
+    const isPDF = file.name.toLowerCase().endsWith('.pdf'); const isCSV = file.name.toLowerCase().endsWith('.csv')
+    if (!isPDF && !isCSV) { setUploadStatus({ type: 'error', message: `${file.name}: not a CSV or PDF.` }); return Promise.resolve() }
+    setUploadStatus({ type: 'loading', message: isPDF ? `Processing ${file.name}...` : `Parsing ${file.name}...` })
     if (isPDF) {
       const formData = new FormData(); formData.append('file', file)
-      fetch(`${API_BASE}/api/upload-pdf`, { method: 'POST', body: formData })
+      return fetch(`${API_BASE}/api/upload-pdf`, { method: 'POST', body: formData })
         .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
         .then(result => {
-          if (result.status === 'unrecognized') { setUploadStatus({ type: 'error', message: 'Could not recognize this PDF format. Please try uploading a CSV export from your bank instead.' }); return }
+          if (result.status === 'unrecognized') { setUploadStatus({ type: 'error', message: `${file.name}: could not recognize this PDF format.` }); return }
           const transactions = Array.isArray(result.transactions) ? result.transactions : []
-          if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in PDF.' }); return }
+          if (transactions.length === 0) { setUploadStatus({ type: 'error', message: `${file.name}: no transactions found.` }); return }
           const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
-          setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-          localCategorizeAndImport(tagged, result.bank_name || '', file.name)
+          return localCategorizeAndImport(tagged, result.bank_name || '', file.name)
         })
-        .catch(err => { setUploadStatus({ type: 'error', message: `PDF processing failed: ${err.message}. Make sure the backend is running.` }) })
-      return
+        .catch(err => { setUploadStatus({ type: 'error', message: `${file.name}: ${err.message}` }) })
     }
 
     const formData = new FormData(); formData.append('file', file)
-    fetch(`${API_BASE}/api/upload-csv`, { method: 'POST', body: formData })
+    return fetch(`${API_BASE}/api/upload-csv`, { method: 'POST', body: formData })
       .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
       .then(result => {
         if (result.status === 'needs_mapping') {
@@ -260,10 +315,9 @@ function App() {
           return
         }
         const transactions = result.transactions || []
-        if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found in CSV.' }); return }
+        if (transactions.length === 0) { setUploadStatus({ type: 'error', message: `${file.name}: no transactions found.` }); return }
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
-        setUploadStatus({ type: 'loading', message: 'Categorizing transactions...' })
-        localCategorizeAndImport(tagged, result.bank_name || '', file.name)
+        return localCategorizeAndImport(tagged, result.bank_name || '', file.name)
       })
       .catch(() => {
         Papa.parse(file, { header: true, skipEmptyLines: true,
@@ -335,74 +389,112 @@ function App() {
       })
   }
 
+  // Phase 17: walks every pendingImports entry and POSTs each as its own import batch.
+  // Each file becomes its own account_id (one Account per accountName) + import_batch.
   const handleConfirmImport = async () => {
-    if (!pendingImport) return
-    const acctName = uploadAccountName.trim() || 'Primary'
-    const kept = pendingImport.transactions.filter((_, i) => !importSelectedRows.has(i))
-    const taggedData = kept.map(d => ({ ...d, _account: acctName }))
-    setData(prev => [...prev.filter(d => d._account !== acctName), ...taggedData])
-    if (!accounts.find(a => a.name === acctName)) setAccounts(prev => [...prev, { id: Date.now().toString(), name: acctName }])
-    setUploadStatus({ type: 'success', message: `Imported ${kept.length.toLocaleString()} transactions into "${acctName}".` })
-    if (authToken) {
-      const sourceType = pendingImport.filename?.endsWith('.pdf') ? 'pdf' : 'csv'
-      let importPayload = { transactions: kept, bank_name: pendingImport.bankName, filename: pendingImport.filename, account_name: acctName, source_type: sourceType }
-      if (encryptionKey) {
-        try {
-          const encrypted = await encryptTransactions(encryptionKey, kept)
-          importPayload = {
-            transactions: encrypted.map(e => ({ date_iso: e.date_iso, encrypted_data: JSON.stringify({ iv: e.iv, ciphertext: e.ciphertext }) })),
-            encrypted: true,
-            bank_name: pendingImport.bankName, filename: pendingImport.filename, account_name: acctName, source_type: sourceType
-          }
-        } catch (e) { console.error('Encryption failed, sending unencrypted:', e) }
+    if (!pendingImports.length) return
+    let totalImported = 0
+    const errors = []
+    // Process each file's import sequentially (so we don't slam the backend with N parallel POSTs)
+    for (const imp of pendingImports) {
+      const baseLabel = (imp.accountName || '').trim()
+      const fileLabel = imp.filename ? imp.filename.replace(/\.(csv|pdf)$/i, '') : null
+      const fallback = imp.bankName && fileLabel ? `${imp.bankName} - ${fileLabel}` : (imp.bankName || fileLabel || 'Primary')
+      const acctName = baseLabel || fallback
+      const kept = imp.transactions.filter((_, i) => !imp.selectedRows.has(i))
+      if (kept.length === 0) continue
+      const importTag = imp.id
+      const taggedData = kept.map(d => ({ ...d, _account: acctName, _importId: importTag }))
+      setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
+      if (!accounts.find(a => a.name === acctName)) {
+        setAccounts(prev => [...prev, { id: `${imp.id}-acct`, name: acctName }])
       }
-      fetch(`${API_BASE}/api/transactions/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify(importPayload)
-      }).then(() => refreshAccounts()).catch(console.error)
+      if (authToken) {
+        const sourceType = imp.filename?.endsWith('.pdf') ? 'pdf' : 'csv'
+        let importPayload = { transactions: kept, bank_name: imp.bankName, filename: imp.filename, account_name: acctName, source_type: sourceType }
+        if (encryptionKey) {
+          try {
+            const encrypted = await encryptTransactions(encryptionKey, kept)
+            importPayload = {
+              transactions: encrypted.map(e => ({ date_iso: e.date_iso, encrypted_data: JSON.stringify({ iv: e.iv, ciphertext: e.ciphertext }) })),
+              encrypted: true,
+              bank_name: imp.bankName, filename: imp.filename, account_name: acctName, source_type: sourceType,
+            }
+          } catch (e) { console.error('Encryption failed, sending unencrypted:', e) }
+        }
+        try {
+          const r = await fetch(`${API_BASE}/api/transactions/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify(importPayload),
+          })
+          if (!r.ok) errors.push(`${imp.filename}: HTTP ${r.status}`)
+          else totalImported += kept.length
+        } catch (e) { errors.push(`${imp.filename}: ${e.message}`) }
+      } else {
+        totalImported += kept.length
+      }
     }
-    setPendingImport(null)
-    setImportSelectedRows(new Set())
-    setEditingCell(null)
+    if (authToken) await refreshAccounts()
+    if (errors.length > 0) {
+      setUploadStatus({ type: 'error', message: `${errors.length} file(s) failed: ${errors.join('; ')}` })
+    } else {
+      setUploadStatus({ type: 'success', message: `Imported ${totalImported.toLocaleString()} transactions across ${pendingImports.length} file${pendingImports.length !== 1 ? 's' : ''}.` })
+    }
+    setPendingImports([])
     setPage('overview')
   }
 
   const handleCancelImport = () => {
-    setPendingImport(null)
-    setImportSelectedRows(new Set())
-    setEditingCell(null)
+    setPendingImports([])
     setUploadStatus(null)
   }
 
-  const updatePendingTransaction = (idx, field, value) => {
-    setPendingImport(prev => {
-      if (!prev) return prev
-      const updated = [...prev.transactions]
-      updated[idx] = { ...updated[idx], [field]: value }
-      return { ...prev, transactions: updated }
-    })
+  // Phase 17: per-import helpers. Each takes importId so the right entry in pendingImports is updated.
+  const removePendingImport = (importId) => {
+    setPendingImports(prev => prev.filter(imp => imp.id !== importId))
   }
 
-  const toggleImportRow = (idx) => {
-    setImportSelectedRows(prev => {
-      const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx); else next.add(idx)
-      return next
-    })
+  const updatePendingImportField = (importId, field, value) => {
+    setPendingImports(prev => prev.map(imp => imp.id === importId ? { ...imp, [field]: value } : imp))
   }
 
-  const toggleAllImportRows = () => {
-    if (!pendingImport) return
-    if (importSelectedRows.size === pendingImport.transactions.length) setImportSelectedRows(new Set())
-    else setImportSelectedRows(new Set(pendingImport.transactions.map((_, i) => i)))
+  const updatePendingTransaction = (importId, rowIdx, field, value) => {
+    setPendingImports(prev => prev.map(imp => {
+      if (imp.id !== importId) return imp
+      const updated = [...imp.transactions]
+      updated[rowIdx] = { ...updated[rowIdx], [field]: value }
+      return { ...imp, transactions: updated }
+    }))
   }
 
-  const deleteSelectedImportRows = () => {
-    if (!pendingImport || importSelectedRows.size === 0) return
-    const kept = pendingImport.transactions.filter((_, i) => !importSelectedRows.has(i))
-    setPendingImport(prev => ({ ...prev, transactions: kept }))
-    setImportSelectedRows(new Set())
+  const toggleImportRow = (importId, rowIdx) => {
+    setPendingImports(prev => prev.map(imp => {
+      if (imp.id !== importId) return imp
+      const next = new Set(imp.selectedRows)
+      if (next.has(rowIdx)) next.delete(rowIdx); else next.add(rowIdx)
+      return { ...imp, selectedRows: next }
+    }))
+  }
+
+  const setImportEditingCell = (importId, cell) => {
+    setPendingImports(prev => prev.map(imp => imp.id === importId ? { ...imp, editingCell: cell } : imp))
+  }
+
+  const toggleAllImportRows = (importId) => {
+    setPendingImports(prev => prev.map(imp => {
+      if (imp.id !== importId) return imp
+      const next = imp.selectedRows.size === imp.transactions.length ? new Set() : new Set(imp.transactions.map((_, i) => i))
+      return { ...imp, selectedRows: next }
+    }))
+  }
+
+  const deleteSelectedImportRows = (importId) => {
+    setPendingImports(prev => prev.map(imp => {
+      if (imp.id !== importId) return imp
+      const kept = imp.transactions.filter((_, i) => !imp.selectedRows.has(i))
+      return { ...imp, transactions: kept, selectedRows: new Set() }
+    }))
   }
 
   const handleWelcomeSubmit = () => { const name = (welcomeInputRef.current?.value || '').trim() || 'Happy'; setUserName(name); localStorage.setItem('spendscope_name', name); setShowWelcome(false) }
@@ -664,7 +756,7 @@ function App() {
           )}
 
           {page === 'upload' && (
-            <UploadPage t={t} currency={currency} uploadStatus={uploadStatus} setUploadStatus={setUploadStatus} pendingImport={pendingImport} setPendingImport={setPendingImport} showColumnMapper={showColumnMapper} setShowColumnMapper={setShowColumnMapper} importSelectedRows={importSelectedRows} setImportSelectedRows={setImportSelectedRows} editingCell={editingCell} setEditingCell={setEditingCell} columnMapping={columnMapping} setColumnMapping={setColumnMapping} columnDateFormat={columnDateFormat} setColumnDateFormat={setColumnDateFormat} mapperBankName={mapperBankName} setMapperBankName={setMapperBankName} mapperSaveTemplate={mapperSaveTemplate} setMapperSaveTemplate={setMapperSaveTemplate} uploadAccountName={uploadAccountName} setUploadAccountName={setUploadAccountName} handleConfirmImport={handleConfirmImport} handleColumnMapperSubmit={handleColumnMapperSubmit} handleCancelImport={handleCancelImport} handleFileUpload={handleFileUpload} dragOver={dragOver} setDragOver={setDragOver} fileInputRef={fileInputRef} data={data} setData={setData} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} fmt={fmt} lc={lc} Sphere={Sphere} setPage={setPage} toggleImportRow={toggleImportRow} toggleAllImportRows={toggleAllImportRows} deleteSelectedImportRows={deleteSelectedImportRows} updatePendingTransaction={updatePendingTransaction} refreshTransactions={refreshTransactions} refreshAccounts={refreshAccounts} />
+            <UploadPage t={t} currency={currency} uploadStatus={uploadStatus} setUploadStatus={setUploadStatus} pendingImports={pendingImports} setPendingImports={setPendingImports} pendingImport={pendingImport} setPendingImport={setPendingImport} showColumnMapper={showColumnMapper} setShowColumnMapper={setShowColumnMapper} columnMapping={columnMapping} setColumnMapping={setColumnMapping} columnDateFormat={columnDateFormat} setColumnDateFormat={setColumnDateFormat} mapperBankName={mapperBankName} setMapperBankName={setMapperBankName} mapperSaveTemplate={mapperSaveTemplate} setMapperSaveTemplate={setMapperSaveTemplate} uploadAccountName={uploadAccountName} setUploadAccountName={setUploadAccountName} handleConfirmImport={handleConfirmImport} handleColumnMapperSubmit={handleColumnMapperSubmit} handleCancelImport={handleCancelImport} handleFileUpload={handleFileUpload} dragOver={dragOver} setDragOver={setDragOver} fileInputRef={fileInputRef} data={data} setData={setData} authToken={authToken} authHeaders={authHeaders} API_BASE={API_BASE} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} fmt={fmt} lc={lc} Sphere={Sphere} setPage={setPage} toggleImportRow={toggleImportRow} toggleAllImportRows={toggleAllImportRows} deleteSelectedImportRows={deleteSelectedImportRows} updatePendingTransaction={updatePendingTransaction} setImportEditingCell={setImportEditingCell} updatePendingImportField={updatePendingImportField} removePendingImport={removePendingImport} refreshTransactions={refreshTransactions} refreshAccounts={refreshAccounts} accounts={accounts} setActiveAccount={setActiveAccount} handleLogout={handleLogout} />
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CAT_COLORS, fmt } from '../constants'
 import EditTransactionModal from './EditTransactionModal'
 
-export const TransactionsPage = ({ t, currency, lc, filteredData, data, searchTerm, setSearchTerm, filterCat, setFilterCat, catTotals, editingTxnCat, setEditingTxnCat, flashedTxnIdx, setFlashedTxnIdx, setData, ALL_CATEGORIES, API_BASE, authHeaders }) => {
+export const TransactionsPage = ({ t, currency, lc, filteredData, data, searchTerm, setSearchTerm, filterCat, setFilterCat, catTotals, editingTxnCat, setEditingTxnCat, flashedTxnIdx, setFlashedTxnIdx, setData, ALL_CATEGORIES, API_BASE, authHeaders, refreshTransactions }) => {
   // Phase 11B: full-row edit modal replaces the inline category dropdown.
   // Click anywhere on a row (or the category pill) to open. Persists via PATCH.
   const [editingTxn, setEditingTxn] = useState(null)
@@ -70,6 +70,8 @@ export const TransactionsPage = ({ t, currency, lc, filteredData, data, searchTe
                   applyChangesLocally(editingTxn.id, changes, applyAll ? matchingIds : [])
                   const idx = data.indexOf(editingTxn)
                   if (idx >= 0) { setFlashedTxnIdx(idx); setTimeout(() => setFlashedTxnIdx(null), 800) }
+                  // Phase 23: refresh from server so the authoritative category sticks.
+                  if (refreshTransactions) refreshTransactions()
                   setEditingTxn(null)
                 }}
               />

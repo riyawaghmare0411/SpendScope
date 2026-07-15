@@ -60,7 +60,7 @@ STARTER_RULES: list[dict[str, str]] = [
     {"merchant": "national rail","category": "Transport"},
     {"merchant": "trainline",   "category": "Transport"},
     {"merchant": "shell",       "category": "Transport"},
-    {"merchant": "bp ",         "category": "Transport"},
+    {"merchant": "bp petrol",   "category": "Transport"},  # tightened: bare "bp " matched inside "non-GBP"
     {"merchant": "esso",        "category": "Transport"},
     {"merchant": "chevron",     "category": "Transport"},
     {"merchant": "exxon",       "category": "Transport"},

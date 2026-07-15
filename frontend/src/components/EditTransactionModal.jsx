@@ -67,12 +67,22 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
             body: JSON.stringify({ ids, changes }),
           })
         }
-        // Also persist as a server-side category rule keyed on merchant + direction
+        // Phase 22: must write the rule in the shape the backend matcher expects:
+        // {match_type, match_value, direction, category}. Previously sent {merchant, ...}
+        // with no match_value -- backend defaulted to empty string, which under "contains"
+        // matched EVERY merchant and branded the dataset with one category.
         try {
           await fetch(`${API_BASE}/api/category-rules`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
-            body: JSON.stringify({ merchant: merchant.trim(), direction, category, learned_at: new Date().toISOString().slice(0, 10) }),
+            body: JSON.stringify({
+              match_type: 'contains',
+              match_value: merchant.trim(),
+              direction,
+              category,
+              is_learned: true,
+              learned_at: new Date().toISOString().slice(0, 10),
+            }),
           })
         } catch {}
       }

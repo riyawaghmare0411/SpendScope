@@ -47,8 +47,19 @@ export const CalendarPage = ({ t, currency, lc, calendarMonth, setCalendarMonth,
   }
 
   const totalPredicted = (subPredictions || []).reduce((s, p) => s + p.amount, 0)
-  const prevMo = () => { const d = new Date(calY, calMo - 2); setCalendarMonth(d.toISOString().slice(0, 7)); setSelectedDay(null) }
-  const nextMo = () => { const d = new Date(calY, calMo); setCalendarMonth(d.toISOString().slice(0, 7)); setSelectedDay(null) }
+  // Phase 21: previously used `new Date(...).toISOString().slice(0,7)` which converts to UTC.
+  // In positive-offset timezones (IST +5:30 etc.) midnight local on the 1st became 18:30 UTC
+  // of the previous day, so the slice returned the same YYYY-MM and the forward arrow froze.
+  // Switch to integer math on year/month -- timezone-independent, handles year wrap cleanly.
+  const shiftMonth = (delta) => {
+    const total = calY * 12 + (calMo - 1) + delta
+    const y = Math.floor(total / 12)
+    const m = (total % 12) + 1
+    setCalendarMonth(`${y}-${String(m).padStart(2, '0')}`)
+    setSelectedDay(null)
+  }
+  const prevMo = () => shiftMonth(-1)
+  const nextMo = () => shiftMonth(1)
 
   // Transactions for the selected day (any direction)
   const selectedDayTxns = useMemo(() => {

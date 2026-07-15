@@ -773,8 +773,20 @@ def delete_category_rule(rule_id: str):
 
 
 def _match_rule(rule: dict, text: str) -> bool:
-    """Check if a rule matches the given text (case-insensitive)."""
-    value = rule.get("match_value", "")
+    """Check if a rule matches the given text (case-insensitive).
+
+    Phase 22: A rule with no `match_value` (or an empty one) was previously
+    treated as `contains ""` which matches EVERY merchant -- so a single bad
+    rule could brand the entire dataset with one category. Now we explicitly
+    treat empty-value rules as no-match. Same idea: an empty regex is a no-match.
+    Fall back to `merchant` field if `match_value` is absent (legacy shape from
+    a since-fixed frontend bug).
+    """
+    value = rule.get("match_value")
+    if not value:
+        value = rule.get("merchant", "")  # legacy shape compatibility
+    if not value:
+        return False
     match_type = rule.get("match_type", "contains")
     text_lower = text.lower()
     value_lower = value.lower()

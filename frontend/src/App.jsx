@@ -736,7 +736,7 @@ function App() {
           )}
 
           {page === 'transactions' && (
-            <TransactionsPage t={t} currency={currency} lc={lc} filteredData={filteredData} data={data} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterCat={filterCat} setFilterCat={setFilterCat} catTotals={catTotals} editingTxnCat={editingTxnCat} setEditingTxnCat={setEditingTxnCat} flashedTxnIdx={flashedTxnIdx} setFlashedTxnIdx={setFlashedTxnIdx} setData={setData} ALL_CATEGORIES={ALL_CATEGORIES} API_BASE={API_BASE} authHeaders={authHeaders} />
+            <TransactionsPage t={t} currency={currency} lc={lc} filteredData={filteredData} data={data} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterCat={filterCat} setFilterCat={setFilterCat} catTotals={catTotals} editingTxnCat={editingTxnCat} setEditingTxnCat={setEditingTxnCat} flashedTxnIdx={flashedTxnIdx} setFlashedTxnIdx={setFlashedTxnIdx} setData={setData} ALL_CATEGORIES={ALL_CATEGORIES} API_BASE={API_BASE} authHeaders={authHeaders} refreshTransactions={refreshTransactions} />
           )}
 
           {page === 'calendar' && (

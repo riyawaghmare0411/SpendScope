@@ -77,6 +77,9 @@ Worktree root: `D:\Projects\SpendScope\.claude\worktrees\focused-knuth\`
 ```
 focused-knuth/
 ├── HANDOFF.md                              # THIS FILE
+├── .github/
+│   └── workflows/
+│       └── ci.yml                          # CI: postgres service + tests/test_*.py + frontend lint/build
 ├── Dockerfile                              # python:3.13-slim, non-root, bakes fastembed model at build
 ├── docker-compose.yml                      # pgvector/pgvector:pg16, port 5432, named volume pgdata
 ├── railway.json                            # Railway deploy config (Dockerfile builder, health check /)
@@ -85,11 +88,12 @@ focused-knuth/
 ├── .env.example                            # template, sanitized
 ├── .env                                    # local secrets (gitignored)
 ├── README.md                               # public docs
-├── _test_wipe.py                           # E2E: signup -> wipe-data -> verify (throwaway, gitignored)
-├── _test_multi_upload.py                   # E2E: multi-file upload (Phase 17)
-├── _test_same_bank_dedup.py                # E2E: Phase 18 -- 3 Lloyds files -> 3 accounts not 1
-├── _test_edit_persist.py                   # E2E: PATCH category -> survives refresh (Phase 23)
-├── _test_cat_check.py                      # E2E: starter-rule sanity
+├── tests/                                  # E2E scripts, tracked in git and run by CI (.github/workflows/ci.yml)
+│   ├── test_wipe.py                        # E2E: signup -> wipe-data -> verify
+│   ├── test_multi_upload.py                # E2E: multi-file upload (Phase 17)
+│   ├── test_same_bank_dedup.py             # E2E: Phase 18 -- 3 Lloyds files -> 3 accounts not 1
+│   ├── test_edit_persist.py                # E2E: PATCH category -> survives refresh (Phase 23)
+│   └── test_cat_check.py                   # E2E: starter-rule sanity
 ├── _backend.log / _backend.err.log         # uvicorn stdout/stderr when run in background
 ├── _frontend.log                           # Vite stdout when run in background
 ├── setup/
@@ -428,7 +432,7 @@ From `C:\Users\riyaw\.claude\CLAUDE.md` + observed in commits:
 1. Edit `src/starter_rules.py`. The list is `STARTER_RULES`. Each entry is `{"merchant": "lowercase keyword", "category": "Category Name"}`. Direction is implicitly OUT.
 2. Keep keywords **specific** -- bare `"bp "` matched inside "non-GBP" (Phase 22). Prefer `"bp petrol"`, `"bp uk fuel"`, etc.
 3. No backend restart needed for fastembed -- the singleton survives. But uvicorn `--reload` will pick up the file change.
-4. Verify: `_test_cat_check.py` or trigger `/api/categorize-local` with a transaction matching the new keyword.
+4. Verify: `tests/test_cat_check.py` or trigger `/api/categorize-local` with a transaction matching the new keyword.
 
 ### Debug "category not sticking" (Phase 22/23 pattern)
 1. Backend PATCH first. `curl -X PATCH http://127.0.0.1:8000/api/transactions/<id> -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"category":"Transport"}'` -- expect 200.
@@ -456,12 +460,12 @@ cd frontend && npm run dev
 
 ### Run E2E tests
 ```bash
-# These are throwaway gitignored scripts at the repo root. They assume the local backend is running.
-/d/Projects/spendscope_venv/Scripts/python.exe _test_wipe.py
-/d/Projects/spendscope_venv/Scripts/python.exe _test_multi_upload.py
-/d/Projects/spendscope_venv/Scripts/python.exe _test_same_bank_dedup.py
-/d/Projects/spendscope_venv/Scripts/python.exe _test_edit_persist.py
-/d/Projects/spendscope_venv/Scripts/python.exe _test_cat_check.py
+# These live in tests/, tracked in git and run by CI (.github/workflows/ci.yml). They assume the local backend is running.
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_wipe.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_multi_upload.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_same_bank_dedup.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_edit_persist.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_cat_check.py
 ```
 Each script signs up a fresh user (so the token is always fresh -- avoid the Phase 16 expired-JWT trap).
 
@@ -616,13 +620,13 @@ grep -nE "coaching/plan|plan-stream|plan-cached|ANTHROPIC|ai_coach" src/api.py
 # Expected: no output (Phase 12 removed all of these)
 ```
 
-### Throwaway tests present (documentation)
+### E2E tests present (tracked in git, run by CI)
 ```bash
-ls _test_*.py
-# Expected: _test_cat_check.py _test_edit_persist.py _test_multi_upload.py _test_same_bank_dedup.py _test_wipe.py
+ls tests/test_*.py
+# Expected: tests/test_cat_check.py tests/test_edit_persist.py tests/test_multi_upload.py tests/test_same_bank_dedup.py tests/test_wipe.py
 
 # Run one as a smoke check (requires backend up):
-/d/Projects/spendscope_venv/Scripts/python.exe _test_cat_check.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_cat_check.py
 # Expected: success / no exceptions
 ```
 

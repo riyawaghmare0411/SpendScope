@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { API_BASE as DEFAULT_API_BASE, fmt, fmtShort } from '../constants'
+import { API_BASE as DEFAULT_API_BASE, fmt } from '../constants'
 
 // Phase 14D: Coach is now the action tracker, not a stats dashboard.
 // Stats live on Dashboard / Spending / Insights / Merchants -- this page is
@@ -15,7 +15,9 @@ function loadDone() {
   } catch { return {} }
 }
 function saveDone(state) {
-  try { localStorage.setItem(DONE_STORAGE_KEY, JSON.stringify(state)) } catch {}
+  try { localStorage.setItem(DONE_STORAGE_KEY, JSON.stringify(state)) } catch (e) {
+    console.warn('CoachPage: could not persist done actions (storage full or unavailable):', e)
+  }
 }
 
 const PRIORITY_BORDER = {

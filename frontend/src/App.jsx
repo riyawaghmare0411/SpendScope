@@ -2,9 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import Papa from 'papaparse'
 import jsPDF from 'jspdf'
 
-import { API_BASE, themes, COLORS, CAT_COLORS, CURRENCIES, NON_DISCRETIONARY, COUNTRIES, SAVINGS_TIPS, MERCHANT_CATEGORIES, categorizeByMerchant, categorizeWithRules, PEER_BENCHMARKS, fmt, fmtShort, NAV, detectColumns, parseFlexDate } from './constants'
+import { API_BASE, themes, COLORS, CAT_COLORS, CURRENCIES, NON_DISCRETIONARY, COUNTRIES, SAVINGS_TIPS, MERCHANT_CATEGORIES, categorizeWithRules, PEER_BENCHMARKS, fmt, fmtShort, NAV, detectColumns, parseFlexDate } from './constants'
 import { encryptTransactions, decryptTransactions } from './lib/crypto.js'
-import { initializeEncryption, getEncryptionKey, clearKey, generateRecoveryCodes, getSalt } from './lib/keyManager.js'
+import { initializeEncryption, getEncryptionKey, clearKey } from './lib/keyManager.js'
 import { Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip } from './components/ui'
 import { AuthPages } from './components/AuthPages'
 import { DashboardPage } from './components/DashboardPage'
@@ -41,15 +41,6 @@ function App() {
     else setPendingImports([{ id: val.id || `legacy-${Date.now()}`, accountName: val.bankName || 'Primary', selectedRows: val.selectedRows || new Set(), editingCell: null, ...val }])
   }
   const [showColumnMapper, setShowColumnMapper] = useState(null)
-  // Legacy aliases for first-entry's selectedRows / editingCell (kept so existing reads don't break)
-  const importSelectedRows = pendingImport?.selectedRows || new Set()
-  const setImportSelectedRows = (next) => {
-    setPendingImports(prev => prev.map((imp, i) => i === 0 ? { ...imp, selectedRows: typeof next === 'function' ? next(imp.selectedRows) : next } : imp))
-  }
-  const editingCell = pendingImport?.editingCell || null
-  const setEditingCell = (next) => {
-    setPendingImports(prev => prev.map((imp, i) => i === 0 ? { ...imp, editingCell: typeof next === 'function' ? next(imp.editingCell) : next } : imp))
-  }
   const [editingTxnCat, setEditingTxnCat] = useState(null)
   const [flashedTxnIdx, setFlashedTxnIdx] = useState(null)
   const [rulesVersion, setRulesVersion] = useState(0)
@@ -108,15 +99,6 @@ function App() {
       setAuthUser(data.user)
       setUserName(name)
       setShowWelcome(false)
-      const { key, salt } = await initializeEncryption(password)
-      setEncryptionKey(key)
-      const codes = generateRecoveryCodes()
-      setRecoveryCodesShown(codes)
-      fetch(`${API_BASE}/api/auth/encryption-setup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.access_token}` },
-        body: JSON.stringify({ encryption_salt: salt, recovery_codes_hash: JSON.stringify(codes.map(c => c)) })
-      }).catch(console.error)
     } catch (e) { setAuthError(e.message) }
     finally { setAuthLoading(false) }
   }
@@ -155,11 +137,11 @@ function App() {
           try {
             processed = await decryptTransactions(key, j.map(t => ({ iv: JSON.parse(t.encrypted_data).iv, ciphertext: JSON.parse(t.encrypted_data).ciphertext, date_iso: t.date_iso, id: t.id, import_batch_id: t.import_batch_id })))
             processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id, account_id: j[i].account_id }))
-          } catch(e) { processed = j }
+          } catch { processed = j }
         }
         setData(processed.map(d => ({ ...d, _account: d._account || 'Primary', account_id: d.account_id || null })))
       }
-    } catch {}
+    } catch (e) { console.error('Failed to load transactions:', e) }
   }
 
   // Phase 10D: hydrate accounts from server (single source of truth -- replaces localStorage)
@@ -170,7 +152,7 @@ function App() {
       if (!r.ok) return
       const j = await r.json()
       if (Array.isArray(j)) setAccounts(j)
-    } catch {}
+    } catch (e) { console.error('Failed to load accounts:', e) }
   }
 
   useEffect(() => { if (!authToken) { setLoading(false); return }; Promise.all([refreshTransactions(), refreshAccounts()]).finally(() => setLoading(false)) }, [authToken])
@@ -204,6 +186,9 @@ function App() {
   // AI-categorize any "Other" merchants, then set pending import
   // Phase 17: now returns the categorized transactions instead of mutating state.
   // Caller is responsible for pushing into pendingImports (multi-file) or single-mode.
+  // Returns { transactions, error }: error is null on success, or a user-facing message on
+  // 401 / non-ok / thrown failure. Callers must thread `error` through instead of blindly
+  // clearing uploadStatus, otherwise the message never survives to paint (see buildPendingEntry).
   const localCategorize = async (tagged) => {
     const directionOf = (t) => t.direction || (Number(t.money_in) > 0 ? 'IN' : 'OUT')
     const keyOf = (t) => `${t.merchant || t.description || ''}|${directionOf(t)}`
@@ -218,35 +203,43 @@ function App() {
       }
     }
     const items = [...seen.values()]
-    if (items.length > 0) {
-      try {
-        const allCategories = {}
-        for (let i = 0; i < items.length; i += 200) {
-          const batch = items.slice(i, i + 200)
-          const r = await fetch(`${API_BASE}/api/categorize-local`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders() },
-            body: JSON.stringify({ items: batch }),
-          })
-          const { categories } = await r.json()
-          if (categories) Object.assign(allCategories, categories)
-        }
-        tagged = tagged.map(t => {
-          if (t.category === 'Other') {
-            const k = keyOf(t)
-            if (allCategories[k] && allCategories[k] !== 'Other') return { ...t, category: allCategories[k] }
-          }
-          return t
+    if (items.length === 0) return { transactions: tagged, error: null }
+    try {
+      const allCategories = {}
+      for (let i = 0; i < items.length; i += 200) {
+        const batch = items.slice(i, i + 200)
+        const r = await fetch(`${API_BASE}/api/categorize-local`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ items: batch }),
         })
-      } catch (e) { /* keep 'Other' if categorize-local unavailable */ }
+        if (r.status === 401) {
+          setTimeout(() => { handleLogout() }, 1500)
+          return { transactions: tagged, error: 'Session expired. Please log in again.' }
+        }
+        if (!r.ok) {
+          return { transactions: tagged, error: `Categorization failed (HTTP ${r.status}). Some transactions may be left as "Other" -- recategorize them from Transactions.` }
+        }
+        const { categories } = await r.json()
+        if (categories) Object.assign(allCategories, categories)
+      }
+      tagged = tagged.map(t => {
+        if (t.category === 'Other') {
+          const k = keyOf(t)
+          if (allCategories[k] && allCategories[k] !== 'Other') return { ...t, category: allCategories[k] }
+        }
+        return t
+      })
+    } catch (e) {
+      return { transactions: tagged, error: `Categorization error: ${e.message || 'network error'}. Some transactions may be left as "Other".` }
     }
-    return tagged
+    return { transactions: tagged, error: null }
   }
 
   // Builds one pendingImports entry from parse results. Caller appends.
   const buildPendingEntry = async (transactions, bankName, filename) => {
     const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
-    const categorized = await localCategorize(tagged)
+    const { transactions: categorized, error: categorizeError } = await localCategorize(tagged)
     const id = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     return {
       id,
@@ -256,6 +249,7 @@ function App() {
       accountName: bankName && filename ? `${bankName} - ${filename.replace(/\.(csv|pdf)$/i, '')}` : (bankName || filename?.replace(/\.(csv|pdf)$/i, '') || 'Primary'),
       selectedRows: new Set(),
       editingCell: null,
+      error: categorizeError || undefined,
     }
   }
 
@@ -263,7 +257,8 @@ function App() {
   const localCategorizeAndImport = async (tagged, bankName, filename) => {
     const entry = await buildPendingEntry(tagged, bankName, filename)
     setPendingImports(prev => [...prev, entry])
-    setUploadStatus(null)
+    setUploadStatus(entry.error ? { type: 'error', message: entry.error } : null)
+    return entry
   }
 
   // Phase 17: accept either a single File (legacy) or File[] (multi-file).
@@ -275,7 +270,10 @@ function App() {
       // Multi-file: parse each in parallel, accumulate results
       setUploadStatus({ type: 'loading', message: `Processing ${files.length} files...` })
       Promise.all(files.map(f => handleSingleFile(f))).then(() => {
-        setUploadStatus(null)
+        // Functional update: preserve any error status set by an individual file's
+        // processing (e.g. a categorize-local 401/500) instead of unconditionally
+        // wiping it -- only clear to null if the last status wasn't an error.
+        setUploadStatus(prev => (prev && prev.type === 'error') ? prev : null)
       }).catch(err => {
         setUploadStatus({ type: 'error', message: `Multi-file upload failed: ${err.message}` })
       })
@@ -752,7 +750,7 @@ function App() {
           )}
 
           {page === 'rules' && (
-            <RulesPage t={t} currency={currency} rulesVersion={rulesVersion} setRulesVersion={setRulesVersion} data={data} setData={setData} setUploadStatus={setUploadStatus} uploadStatus={uploadStatus} categorizeWithRules={categorizeWithRules} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} lc={lc} />
+            <RulesPage t={t} currency={currency} rulesVersion={rulesVersion} setRulesVersion={setRulesVersion} data={data} setData={setData} setUploadStatus={setUploadStatus} uploadStatus={uploadStatus} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} lc={lc} />
           )}
 
           {page === 'upload' && (

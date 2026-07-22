@@ -4,7 +4,7 @@ import { useState } from 'react'
 // Shows every account the user has, with Open/Rename/Delete actions.
 // Uses existing /api/accounts (GET/PATCH/DELETE) endpoints.
 
-export function AccountsListPanel({ t, lc, accounts, setActiveAccount, setPage, API_BASE, authHeaders, refreshAccounts, refreshTransactions, currency, fmt, handleLogout }) {
+export function AccountsListPanel({ t, lc, accounts, setActiveAccount, setPage, API_BASE, authHeaders, refreshAccounts, refreshTransactions, handleLogout }) {
   const [editingId, setEditingId] = useState(null)
   const [editName, setEditName] = useState('')
   const [busy, setBusy] = useState(false)

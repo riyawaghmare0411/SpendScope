@@ -12,7 +12,7 @@ const MATCH_TYPE_HELP = {
   regex: { label: 'Regex (advanced)', help: 'Pattern matching for power users. Skip unless you know regex.', example: '^uber.*eats$ -> Uber Eats only' },
 }
 
-export default function RulesPage({ t, currency, rulesVersion, setRulesVersion, data, setData, setUploadStatus, uploadStatus, categorizeWithRules, ALL_CATEGORIES, CAT_COLORS, lc }) {
+export default function RulesPage({ t, rulesVersion, setRulesVersion, data, setUploadStatus, uploadStatus, ALL_CATEGORIES, CAT_COLORS, lc }) {
   void rulesVersion // referenced to trigger re-render on rule changes
   const learnedRules = JSON.parse(localStorage.getItem('spendscope_learned_rules') || '[]')
   const bulkRules = JSON.parse(localStorage.getItem('spendscope_bulk_rules') || '[]')
@@ -70,7 +70,7 @@ export default function RulesPage({ t, currency, rulesVersion, setRulesVersion, 
     <div style={{ ...lc, marginBottom: '24px', padding: '20px 24px' }}>
       <h3 style={{ fontSize: '15px', fontWeight: 600, color: t.text, margin: '0 0 6px' }}>Add a custom rule</h3>
       <p style={{ fontSize: '12px', color: t.textMuted, margin: '0 0 14px' }}>
-        Example: rule "contains <em>tesco</em> -> Groceries" categorizes every Tesco transaction as Groceries automatically.
+        Example: rule "contains <em>tesco</em> {'->'} Groceries" categorizes every Tesco transaction as Groceries automatically.
       </p>
       <form onSubmit={e => {
         e.preventDefault()
@@ -192,12 +192,6 @@ export default function RulesPage({ t, currency, rulesVersion, setRulesVersion, 
         Re-run rules across your existing transactions, or back up / restore your rules.
       </p>
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <button onClick={() => {
-          if (!confirm(`Re-categorize all ${data.length} transactions using the current rules? This will overwrite existing categories you've manually set.`)) return
-          setData(prev => prev.map(tx => ({ ...tx, category: categorizeWithRules(tx.merchant || tx.description || '') })))
-          setUploadStatus({ type: 'success', message: `Re-categorized ${data.length} transactions using current rules.` })
-          setTimeout(() => setUploadStatus(null), 3000)
-        }} style={{ padding: '10px 24px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '13px', fontWeight: 600, boxShadow: `0 4px 12px ${t.tealDark}30` }} title="Overwrites manual categorizations -- confirm before running">Apply rules to all transactions</button>
         <button onClick={() => {
           const exportData = { learned_rules: learnedRules, bulk_rules: bulkRules, exported_at: new Date().toISOString() }
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })

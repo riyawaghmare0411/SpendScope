@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export default function ProfileModal({ t, authUser, showProfile, setShowProfile, profileInputRef, authToken, authHeaders, setAuthUser, API_BASE, userName, setUserName, handleLogout, Sphere, onWipeData }) {
+export default function ProfileModal({ t, authUser, setShowProfile, profileInputRef, authToken, authHeaders, API_BASE, userName, setUserName, handleLogout, onWipeData }) {
   const [wipeStep, setWipeStep] = useState(0) // 0=hidden, 1=type-confirm, 2=in-progress
   const [wipeText, setWipeText] = useState('')
   const [wipeError, setWipeError] = useState('')

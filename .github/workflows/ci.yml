@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: spendscope
+          POSTGRES_PASSWORD: spendscope_dev
+          POSTGRES_DB: spendscope
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U spendscope -d spendscope"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SPENDSCOPE_API_BASE: http://127.0.0.1:8000
+      SPENDSCOPE_DB_URL: postgresql://spendscope:spendscope_dev@localhost:5432/spendscope
+      DATABASE_URL: postgresql+asyncpg://spendscope:spendscope_dev@localhost:5432/spendscope
+      JWT_SECRET: ci-test-secret-not-for-production
+      FASTEMBED_CACHE_PATH: /home/runner/.fastembed_cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install OS packages (onnxruntime needs libgomp1)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgomp1
+
+      - name: Cache fastembed model
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.fastembed_cache
+          key: fastembed-bge-small-en-v1.5
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start app
+        run: nohup uvicorn src.api:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
+
+      - name: Wait for app readiness
+        run: |
+          timeout=90
+          elapsed=0
+          until curl -sf "$SPENDSCOPE_API_BASE/" > /dev/null; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "App did not become ready within ${timeout}s -- dumping app.log"
+              cat app.log
+              exit 1
+            fi
+            sleep 2
+            elapsed=$((elapsed + 2))
+          done
+          echo "App is ready"
+
+      - name: Run tests/test_wipe.py
+        run: python tests/test_wipe.py
+
+      - name: Run tests/test_multi_upload.py
+        run: python tests/test_multi_upload.py
+
+      - name: Run tests/test_same_bank_dedup.py
+        run: python tests/test_same_bank_dedup.py
+
+      - name: Run tests/test_edit_persist.py
+        run: python tests/test_edit_persist.py
+
+      - name: Run tests/test_cat_check.py
+        run: python tests/test_cat_check.py
+
+      - name: Dump app.log on failure
+        if: failure()
+        run: '[ -f app.log ] && cat app.log || echo "app.log not found (app never started)"'
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

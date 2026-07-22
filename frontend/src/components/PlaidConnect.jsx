@@ -40,9 +40,15 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
       const r = await fetch(`${API_BASE}/api/plaid/items`, { headers: authHeaders() })
       if (r.status === 503) { setUnavailable(true); return }
       if (r.ok) setItems(await r.json())
-    } catch {}
+    } catch (e) {
+      setError(`Could not load connected banks: ${e.message || 'network error'}`)
+    }
   }, [authToken, authHeaders])
 
+  // Standard fetch-on-mount. setState occurs after the awaited fetch, not synchronously, so the
+  // cascading-render warning does not apply here. The real improvement -- memoizing authHeaders in
+  // App.jsx so this effect stops re-firing on every render -- is deferred to the Phase C auth work.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchItems() }, [fetchItems])
 
   const fetchLinkToken = async () => {
@@ -101,7 +107,9 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
       })
       if (r.ok && onSyncComplete) onSyncComplete()
       await fetchItems()
-    } catch {}
+    } catch (e) {
+      setError(`Sync failed: ${e.message || 'network error'}`)
+    }
     setSyncing(null)
   }
 
@@ -113,7 +121,9 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
         headers: authHeaders()
       })
       await fetchItems()
-    } catch {}
+    } catch (e) {
+      setError(`Could not disconnect: ${e.message || 'network error'}`)
+    }
   }
 
   const glass = {

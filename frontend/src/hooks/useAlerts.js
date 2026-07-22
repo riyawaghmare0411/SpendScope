@@ -18,7 +18,6 @@ function daysUntilDue(due_day) {
 export default function useAlerts(accounts, filteredData) {
   return useMemo(() => {
     const alerts = []
-    const now = Date.now()
 
     // 1. Credit utilization
     for (const a of accounts || []) {
@@ -31,7 +30,6 @@ export default function useAlerts(accounts, filteredData) {
             level: pct >= 95 ? 'danger' : 'warn',
             icon: '\uD83D\uDCB3',
             msg: `${a.name} is at ${pct.toFixed(0)}% utilization. Pay it down to protect your credit score.`,
-            ts: now,
           })
         }
       }
@@ -46,7 +44,6 @@ export default function useAlerts(accounts, filteredData) {
           level: days <= 2 ? 'danger' : 'warn',
           icon: '\u23F0',
           msg: days === 0 ? `${a.name} payment due today` : `${a.name} payment due in ${days} day${days === 1 ? '' : 's'}`,
-          ts: now,
         })
       }
     }
@@ -71,7 +68,6 @@ export default function useAlerts(accounts, filteredData) {
             level: 'warn',
             icon: '\u26A0\uFE0F',
             msg: `On pace to overspend by ${Math.abs(projectedEOM).toFixed(0)} this month -- ease up to stay even.`,
-            ts: now,
           })
         }
       }

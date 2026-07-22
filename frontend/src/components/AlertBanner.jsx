@@ -19,7 +19,9 @@ function loadDismissed() {
 }
 
 function saveDismissed(state) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch (e) {
+    console.warn('AlertBanner: could not persist dismissed alerts (storage full or unavailable):', e)
+  }
 }
 
 export default function AlertBanner({ t, alerts }) {

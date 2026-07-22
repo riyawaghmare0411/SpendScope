@@ -14,8 +14,11 @@ export const Sphere = ({ size, color, top, left, right, bottom, opacity = 0.6 })
 export const Counter = ({ end, prefix = '', duration = 1200, color, decimals = 2, abbreviate = false }) => {
   const [val, setVal] = useState(0)
   const [done, setDone] = useState(false)
+  const [resetKey, setResetKey] = useState(null)
+  const key = `${end}|${duration}`
+  if (resetKey !== key) { setResetKey(key); setDone(false) }
   useEffect(() => {
-    setDone(false); let start = 0; const step = end / (duration / 16)
+    let start = 0; const step = end / (duration / 16)
     const timer = setInterval(() => { start += step; if (start >= end) { setVal(end); setDone(true); clearInterval(timer) } else setVal(start) }, 16)
     return () => clearInterval(timer)
   }, [end, duration])

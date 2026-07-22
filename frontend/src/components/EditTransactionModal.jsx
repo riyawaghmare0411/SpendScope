@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { fmt } from '../constants'
 
 // Phase 11B: full-row edit modal -- direction, category, merchant, amount.
 // Phase 11C: optional "apply to all matching merchants" + persist learned rule to backend.
 
-export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES, CAT_COLORS, onClose, onSave, allTransactions, API_BASE, authHeaders }) {
+export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES, onClose, onSave, allTransactions, API_BASE, authHeaders }) {
   const [direction, setDirection] = useState(txn.direction || 'OUT')
   const [category, setCategory] = useState(txn.category || 'Other')
   const [merchant, setMerchant] = useState(txn.merchant || '')
@@ -27,7 +26,6 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const directionChanged = direction !== txn.direction
   const amountNum = parseFloat(amount)
   const amountChanged = !isNaN(amountNum) && amountNum > 0 && Math.abs(amountNum - (Number(txn.direction === 'IN' ? txn.money_in : txn.money_out) || txn.amount || 0)) > 0.001
 
@@ -71,20 +69,25 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
         // {match_type, match_value, direction, category}. Previously sent {merchant, ...}
         // with no match_value -- backend defaulted to empty string, which under "contains"
         // matched EVERY merchant and branded the dataset with one category.
-        try {
-          await fetch(`${API_BASE}/api/category-rules`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders() },
-            body: JSON.stringify({
-              match_type: 'contains',
-              match_value: merchant.trim(),
-              direction,
-              category,
-              is_learned: true,
-              learned_at: new Date().toISOString().slice(0, 10),
-            }),
-          })
-        } catch {}
+        const ruleRes = await fetch(`${API_BASE}/api/category-rules`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({
+            match_type: 'contains',
+            match_value: merchant.trim(),
+            direction,
+            category,
+            is_learned: true,
+            learned_at: new Date().toISOString().slice(0, 10),
+          }),
+        })
+        if (!ruleRes.ok) {
+          // No session-expired callback is wired to this component (it only receives
+          // authHeaders, not onSessionExpired) -- surface a plain but explicit error instead.
+          throw new Error(ruleRes.status === 401
+            ? 'Session expired -- rule was not saved. Please log in again.'
+            : `Rule not saved (HTTP ${ruleRes.status}) -- future imports won't auto-categorize this merchant.`)
+        }
       }
 
       onSave({ changes, applyAll, matchingIds: applyAll ? matching.map(m => m.id).filter(Boolean) : [] })

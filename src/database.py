@@ -46,6 +46,8 @@ _PHASE10_ALTERS = [
     "CREATE EXTENSION IF NOT EXISTS vector",
     "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS embedding vector(384)",
     "CREATE INDEX IF NOT EXISTS ix_transactions_embedding ON transactions USING hnsw (embedding vector_cosine_ops)",
+    # Phase F: CategoryRule.direction (IN/OUT) migrated from legacy JSON rules
+    "ALTER TABLE category_rules ADD COLUMN IF NOT EXISTS direction VARCHAR(10)",
 ]
 
 

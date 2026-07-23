@@ -54,11 +54,11 @@ async def main():
         step("GET /api/accounts returns 1", n_acct == 1, f"got {n_acct}")
         if n_acct != 1: failures += 1
 
-        # 5. Add a category rule (writes to JSON file -- known not user-scoped)
-        r = await c.post(f"{BASE}/api/category-rules", json={
-            "merchant": "tesco", "direction": "OUT", "category": "Groceries"
+        # 5. Add a category rule (Phase C: DB-backed, user-scoped, requires match_value)
+        r = await c.post(f"{BASE}/api/category-rules", headers=H, json={
+            "match_type": "contains", "match_value": "tesco", "direction": "OUT", "category": "Groceries"
         })
-        if not step("POST /api/category-rules (no auth)", r.status_code == 200, f"HTTP {r.status_code}"):
+        if not step("POST /api/category-rules (auth)", r.status_code == 200, f"HTTP {r.status_code}"):
             failures += 1
 
         # 6. Call wipe

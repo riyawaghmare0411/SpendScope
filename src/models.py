@@ -123,6 +123,7 @@ class CategoryRule(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("users.id"), nullable=False, index=True)
     match_type: Mapped[str] = mapped_column(sa.String(50), nullable=False)
     match_value: Mapped[str] = mapped_column(sa.String(500), nullable=False)
+    direction: Mapped[str | None] = mapped_column(sa.String(10), nullable=True)
     category: Mapped[str] = mapped_column(sa.String(100), nullable=False)
     priority: Mapped[int] = mapped_column(sa.Integer, default=0)
     is_learned: Mapped[bool] = mapped_column(sa.Boolean, default=False)

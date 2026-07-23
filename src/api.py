@@ -606,7 +606,7 @@ def get_summary():
     }
 
 @app.post("/api/upload-csv")
-async def upload_csv(file: UploadFile = File(...)):
+async def upload_csv(file: UploadFile = File(...), current_user=Depends(get_current_user)):
     """Parse a CSV bank statement and return transactions for user review."""
     from src.parsers.csv_parser import parse_csv
     from src.parsers.redaction_detector import detect_csv_redactions, flag_redacted_transactions
@@ -674,7 +674,7 @@ async def categorize_local(request: Request, current_user=Depends(get_current_us
     """Phase 12D: local merchant categorization. ZERO outbound network calls.
 
     Tier walk per item:
-      1. User's own JSON rules (existing _match_rule)
+      1. User's own DB-backed CategoryRule rows (existing _match_rule)
       2. Vector KNN over the user's manually-categorized history (categorize_local.py)
       3. Starter pack of common UK + US merchants (starter_rules.py)
       4. 'Income' if direction == IN, else 'Other'
@@ -695,13 +695,15 @@ async def categorize_local(request: Request, current_user=Depends(get_current_us
             raise HTTPException(400, "direction must be 'IN' or 'OUT'")
 
     user_id = uuid.UUID(current_user["user_id"])
-    user_rules = _load_rules()
+    rules_r = await db.execute(select(CategoryRule).where(CategoryRule.user_id == user_id))
+    user_rules = [{"match_type": r.match_type, "match_value": r.match_value, "category": r.category}
+                  for r in rules_r.scalars().all()]
     out: dict[str, str] = {}
     for it in items:
         merchant = (it.get("merchant") or "").strip()
         direction = it["direction"]
         key = f"{merchant}|{direction}"
-        # Tier 1: user-defined JSON rules
+        # Tier 1: user-scoped DB rules
         cat = next((r.get("category") for r in user_rules if _match_rule(r, merchant)), None)
         # Tier 2: vector KNN over user's manually-categorized history
         if not cat:
@@ -718,57 +720,91 @@ async def categorize_local(request: Request, current_user=Depends(get_current_us
 
 
 # --- Category Rules Endpoints ---
-
-RULES_PATH = DATA_DIR / "category_rules.json"
-
-
-def _load_rules() -> list:
-    if RULES_PATH.exists():
-        with open(RULES_PATH, "r") as f:
-            return json.load(f)
-    return []
+# Phase C: migrated from the global data/processed/category_rules.json file to the
+# user-scoped CategoryRule DB table. The old JSON file is abandoned -- left on disk,
+# no longer read or written. Its orphan rules have no owning user and are not migrated.
 
 
-def _save_rules(rules: list):
-    with open(RULES_PATH, "w") as f:
-        json.dump(rules, f, indent=2)
+def _rule_to_dict(r: CategoryRule) -> dict:
+    return {
+        "id": str(r.id),
+        "match_type": r.match_type,
+        "match_value": r.match_value,
+        "direction": r.direction,
+        "category": r.category,
+        "is_learned": r.is_learned,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
 
 
 @app.get("/api/category-rules")
-def get_category_rules():
-    return _load_rules()
+async def get_category_rules(current_user=Depends(get_current_user), db=Depends(get_db)):
+    user_id = uuid.UUID(current_user["user_id"])
+    result = await db.execute(
+        select(CategoryRule).where(CategoryRule.user_id == user_id).order_by(CategoryRule.created_at)
+    )
+    return [_rule_to_dict(r) for r in result.scalars().all()]
 
 
 @app.post("/api/category-rules")
-async def add_category_rule(request: Request):
-    rule = await request.json()
-    rules = _load_rules()
-    rule["id"] = str(len(rules) + 1)
-    rules.append(rule)
-    _save_rules(rules)
-    return rule
+async def add_category_rule(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    body = await request.json()
+    match_value = (body.get("match_value") or "").strip()
+    if not match_value:
+        raise HTTPException(400, "match_value is required")
+    user_id = uuid.UUID(current_user["user_id"])
+    rule = CategoryRule(
+        user_id=user_id,
+        match_type=body.get("match_type", "contains"),
+        match_value=match_value,
+        direction=body.get("direction"),
+        category=body.get("category", ""),
+        is_learned=bool(body.get("is_learned", False)),
+    )
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+    return _rule_to_dict(rule)
 
 
-@app.put("/api/category-rules/{rule_id}")
-async def update_category_rule(rule_id: str, request: Request):
-    updates = await request.json()
-    rules = _load_rules()
-    for r in rules:
-        if r["id"] == rule_id:
-            r.update(updates)
-            r["id"] = rule_id  # prevent ID overwrite
-            _save_rules(rules)
-            return r
-    return {"error": "Rule not found"}, 404
+@app.patch("/api/category-rules/{rule_id}")
+async def update_category_rule(rule_id: str, request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        rid = uuid.UUID(rule_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid rule_id")
+    rule = await db.get(CategoryRule, rid)
+    if not rule or rule.user_id != user_id:
+        raise HTTPException(404, "Rule not found")
+
+    body = await request.json()
+    if "match_value" in body:
+        mv = (body["match_value"] or "").strip()
+        if not mv:
+            raise HTTPException(400, "match_value cannot be empty")
+        rule.match_value = mv
+    if "category" in body and body["category"] is not None:
+        rule.category = body["category"]
+
+    await db.commit()
+    await db.refresh(rule)
+    return _rule_to_dict(rule)
 
 
 @app.delete("/api/category-rules/{rule_id}")
-def delete_category_rule(rule_id: str):
-    rules = _load_rules()
-    filtered = [r for r in rules if r["id"] != rule_id]
-    if len(filtered) == len(rules):
-        return {"error": "Rule not found"}
-    _save_rules(filtered)
+async def delete_category_rule(rule_id: str, current_user=Depends(get_current_user), db=Depends(get_db)):
+    user_id = uuid.UUID(current_user["user_id"])
+    try:
+        rid = uuid.UUID(rule_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid rule_id")
+    rule = await db.get(CategoryRule, rid)
+    if not rule or rule.user_id != user_id:
+        raise HTTPException(404, "Rule not found")
+
+    await db.delete(rule)
+    await db.commit()
     return {"status": "deleted", "id": rule_id}
 
 
@@ -805,10 +841,13 @@ def _match_rule(rule: dict, text: str) -> bool:
 
 
 @app.post("/api/categorize")
-async def categorize_transactions(request: Request):
+async def categorize_transactions(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
     body = await request.json()
     transactions = body.get("transactions", [])
-    rules = _load_rules()
+    user_id = uuid.UUID(current_user["user_id"])
+    rules_r = await db.execute(select(CategoryRule).where(CategoryRule.user_id == user_id))
+    rules = [{"match_type": r.match_type, "match_value": r.match_value, "category": r.category,
+              "priority": r.priority, "is_learned": r.is_learned} for r in rules_r.scalars().all()]
 
     # Sort: highest priority first, then learned before manual
     rules.sort(key=lambda r: (-r.get("priority", 0), not r.get("is_learned", False)))
@@ -825,7 +864,7 @@ async def categorize_transactions(request: Request):
 
 
 @app.post("/api/upload-csv-mapped")
-async def upload_csv_mapped(file: UploadFile = File(...), mapping: str = Form(...)):
+async def upload_csv_mapped(file: UploadFile = File(...), mapping: str = Form(...), current_user=Depends(get_current_user)):
     """Parse CSV using user-provided column mapping."""
     import json as json_module
     from src.parsers.csv_parser import parse_with_mapping
@@ -851,7 +890,7 @@ async def upload_csv_mapped(file: UploadFile = File(...), mapping: str = Form(..
 
 
 @app.post("/api/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), current_user=Depends(get_current_user)):
     """Parse a bank statement PDF and return transactions for user review."""
     from src.parsers.pdf_parser import parse_pdf
     from src.parsers.redaction_detector import detect_csv_redactions, flag_redacted_transactions

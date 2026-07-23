@@ -289,9 +289,13 @@ function App() {
     setUploadStatus({ type: 'loading', message: isPDF ? `Processing ${file.name}...` : `Parsing ${file.name}...` })
     if (isPDF) {
       const formData = new FormData(); formData.append('file', file)
-      return fetch(`${API_BASE}/api/upload-pdf`, { method: 'POST', body: formData })
-        .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
+      return fetch(`${API_BASE}/api/upload-pdf`, { method: 'POST', headers: { ...authHeaders() }, body: formData })
+        .then(r => {
+          if (r.status === 401) { setUploadStatus({ type: 'error', message: 'Session expired. Please log in again.' }); setTimeout(() => handleLogout(), 1500); return null }
+          if (!r.ok) throw new Error('Server error'); return r.json()
+        })
         .then(result => {
+          if (!result) return
           if (result.status === 'unrecognized') { setUploadStatus({ type: 'error', message: `${file.name}: could not recognize this PDF format.` }); return }
           const transactions = Array.isArray(result.transactions) ? result.transactions : []
           if (transactions.length === 0) { setUploadStatus({ type: 'error', message: `${file.name}: no transactions found.` }); return }
@@ -302,9 +306,13 @@ function App() {
     }
 
     const formData = new FormData(); formData.append('file', file)
-    return fetch(`${API_BASE}/api/upload-csv`, { method: 'POST', body: formData })
-      .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
+    return fetch(`${API_BASE}/api/upload-csv`, { method: 'POST', headers: { ...authHeaders() }, body: formData })
+      .then(r => {
+        if (r.status === 401) { setUploadStatus({ type: 'error', message: 'Session expired. Please log in again.' }); setTimeout(() => handleLogout(), 1500); return null }
+        if (!r.ok) throw new Error('Server error'); return r.json()
+      })
       .then(result => {
+        if (!result) return
         if (result.status === 'needs_mapping') {
           setShowColumnMapper({ headers: result.headers, previewRows: result.preview_rows, file })
           setColumnMapping({ date: '', description: '', amount: '', amountIn: '', amountOut: '', balance: '' })
@@ -354,9 +362,13 @@ function App() {
     formData.append('mapping', JSON.stringify(mapping))
     if (mapperSaveTemplate && mapperBankName) formData.append('bank_name', mapperBankName)
     setUploadStatus({ type: 'loading', message: 'Parsing with custom mapping...' })
-    fetch(`${API_BASE}/api/upload-csv-mapped`, { method: 'POST', body: formData })
-      .then(r => { if (!r.ok) throw new Error('Server error'); return r.json() })
+    fetch(`${API_BASE}/api/upload-csv-mapped`, { method: 'POST', headers: { ...authHeaders() }, body: formData })
+      .then(r => {
+        if (r.status === 401) { setUploadStatus({ type: 'error', message: 'Session expired. Please log in again.' }); setTimeout(() => handleLogout(), 1500); return null }
+        if (!r.ok) throw new Error('Server error'); return r.json()
+      })
       .then(result => {
+        if (!result) return
         const transactions = result.transactions || []
         if (transactions.length === 0) { setUploadStatus({ type: 'error', message: 'No transactions found with this mapping.' }); return }
         const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
@@ -750,7 +762,7 @@ function App() {
           )}
 
           {page === 'rules' && (
-            <RulesPage t={t} currency={currency} rulesVersion={rulesVersion} setRulesVersion={setRulesVersion} data={data} setData={setData} setUploadStatus={setUploadStatus} uploadStatus={uploadStatus} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} lc={lc} />
+            <RulesPage t={t} currency={currency} rulesVersion={rulesVersion} setRulesVersion={setRulesVersion} data={data} setData={setData} setUploadStatus={setUploadStatus} uploadStatus={uploadStatus} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} lc={lc} authHeaders={authHeaders} API_BASE={API_BASE} />
           )}
 
           {page === 'upload' && (

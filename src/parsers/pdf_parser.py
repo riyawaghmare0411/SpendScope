@@ -59,6 +59,8 @@ def parse_pdf(file_content: bytes) -> dict:
             "raw_text": "",
             "recognized": False,
             "error": f"Could not open PDF: {e}",
+            "reason": "open_error",
+            "detected_bank": None,
         }
 
     full_text = ""
@@ -68,6 +70,18 @@ def parse_pdf(file_content: bytes) -> dict:
         full_text += page_text + "\n"
         all_lines.extend(page_text.split("\n"))
     doc.close()
+
+    # Zero/near-zero extracted text means a scanned or image-only PDF --
+    # must be checked before bank detection so it isn't misreported as unknown_bank.
+    if len(full_text.strip()) < 20:
+        return {
+            "bank_name": "Unknown",
+            "transactions": [],
+            "raw_text": full_text,
+            "recognized": False,
+            "reason": "scanned",
+            "detected_bank": None,
+        }
 
     bank = detect_bank_pdf(full_text)
 
@@ -86,6 +100,19 @@ def parse_pdf(file_content: bytes) -> dict:
             "transactions": transactions,
             "raw_text": full_text,
             "recognized": True,
+            "reason": "parsed",
+            "detected_bank": bank,
+        }
+
+    if bank != "Unknown":
+        # Bank recognized via BANK_MARKERS but no parser implemented yet.
+        return {
+            "bank_name": bank,
+            "transactions": [],
+            "raw_text": full_text,
+            "recognized": False,
+            "reason": "no_parser",
+            "detected_bank": bank,
         }
 
     return {
@@ -93,6 +120,8 @@ def parse_pdf(file_content: bytes) -> dict:
         "transactions": [],
         "raw_text": full_text,
         "recognized": False,
+        "reason": "unknown_bank",
+        "detected_bank": None,
     }
 
 

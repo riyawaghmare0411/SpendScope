@@ -4,8 +4,10 @@ load_dotenv(override=True)  # Load .env file - must be before other imports that
 from fastapi import FastAPI, File, Form, UploadFile, Request, Depends, HTTPException
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
-import json, os, re, uuid
+from fastapi.responses import JSONResponse
+from sqlalchemy import select, text
+import json, os, re, uuid, hashlib
+from contextlib import asynccontextmanager
 from pathlib import Path
 from src.database import get_db, init_db, async_session
 from src.models import User, Account, ImportBatch, Transaction as TxnModel, CategoryRule, Budget, PlaidItem
@@ -18,7 +20,14 @@ from src.auth import (
 from src.categorize_local import embed_text, embed_many, categorize_by_neighbors
 from src.starter_rules import match_starter_rule
 
-app = FastAPI(title="SpendScope API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(title="SpendScope API", lifespan=lifespan)
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 
@@ -32,15 +41,23 @@ app.add_middleware(
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-
-@app.on_event("startup")
-async def startup():
-    await init_db()
+# CONTRACT-3: the only transaction fields that ever move into encrypted_data for an
+# encrypted row. Identical list lives in frontend/src/lib/crypto.js.
+ENCRYPTED_FIELDS = ("merchant", "description")
 
 
 @app.get("/")
 def root():
     return {"status": "SpendScope API is running"}
+
+
+@app.get("/health")
+async def health(db=Depends(get_db)):
+    try:
+        await db.execute(text("SELECT 1"))
+        return {"status": "ok", "db": "ok"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "degraded", "db": "unreachable"})
 
 
 # --- Auth Endpoints ---
@@ -169,28 +186,6 @@ async def encryption_setup(request: Request, current_user=Depends(get_current_us
     return {"status": "encryption_configured"}
 
 
-@app.post("/api/auth/encryption-rewrap")
-async def encryption_rewrap(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
-    """Replace the stored wrapped DEK, e.g. after a password change or after a
-    successful client-side recovery-code unlock. The DEK itself never changes --
-    only the wrapping (password/recovery KEKs) around it."""
-    data = await request.json()
-    wrapped_dek = data.get("wrapped_dek")
-    if not wrapped_dek:
-        raise HTTPException(400, "wrapped_dek is required")
-
-    result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(404, "User not found")
-    if not user.wrapped_dek:
-        raise HTTPException(409, "Encryption is not configured for this user")
-
-    user.wrapped_dek = wrapped_dek if isinstance(wrapped_dek, str) else json.dumps(wrapped_dek)
-    await db.commit()
-    return {"status": "rewrapped"}
-
-
 @app.post("/api/auth/change-password")
 async def change_password(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
     """Change the account login password. If encryption is configured for this user,
@@ -198,26 +193,30 @@ async def change_password(request: Request, current_user=Depends(get_current_use
     changing the password alone would leave the stored envelope permanently unopenable
     (it's still wrapped under the old password's KEK), orphaning the DEK forever."""
     data = await request.json()
+    current_password = data.get("current_password")
     new_password = data.get("new_password")
-    if not new_password:
-        raise HTTPException(400, "new_password is required")
+    if not current_password:
+        raise HTTPException(400, "current_password is required")
+    if not new_password or len(new_password) < 8:
+        raise HTTPException(400, "new_password must be at least 8 characters")
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(401, "Current password is incorrect")
 
     wrapped_dek = data.get("wrapped_dek")
-    if user.wrapped_dek and not wrapped_dek:
-        raise HTTPException(
-            400,
-            "Encryption is configured for this account; a wrapped_dek re-wrapped "
-            "under the new password must be included in this same request.",
-        )
+    if user.encryption_salt:
+        if not isinstance(wrapped_dek, dict) or not all(k in wrapped_dek for k in ("v", "password", "recovery")):
+            raise HTTPException(400, "wrapped_dek must be a full envelope with v, password, and recovery")
+    elif "wrapped_dek" in data:
+        raise HTTPException(400, "wrapped_dek must not be sent; encryption is not configured for this account")
 
     user.password_hash = hash_password(new_password)
-    if wrapped_dek:
-        user.wrapped_dek = wrapped_dek if isinstance(wrapped_dek, str) else json.dumps(wrapped_dek)
+    if wrapped_dek is not None:
+        user.wrapped_dek = json.dumps(wrapped_dek)
     await db.commit()
     return {"status": "password_changed"}
 
@@ -291,10 +290,12 @@ async def import_transactions(request: Request, current_user=Depends(get_current
     encrypted = data.get("encrypted", False)
     incoming = data.get("transactions", [])
 
+    user_row = await db.get(User, user_id)
     if encrypted:
-        user_row = await db.get(User, user_id)
         if not user_row or not user_row.wrapped_dek:
             raise HTTPException(400, "Encryption is not configured for this user; cannot import encrypted transactions")
+    elif user_row and user_row.wrapped_dek:
+        raise HTTPException(400, "This account has encryption enabled; plaintext imports are rejected. Log in again to unlock encryption.")
 
     # Phase 12D: batch-embed merchant strings up front for speed (single ONNX inference).
     # Encrypted-mode transactions skip embedding (no plaintext merchant).
@@ -324,7 +325,9 @@ async def import_transactions(request: Request, current_user=Depends(get_current
                 account_id=account.id,
                 user_id=user_id,
                 date=tx_date,
-                description="",
+                # CONTRACT-3: encrypted fields never get plaintext values -- description is
+                # NOT NULL so it gets "", the nullable merchant column gets None.
+                **{f: ("" if f == "description" else None) for f in ENCRYPTED_FIELDS},
                 category=t.get("category", ""),
                 type=t.get("type", ""),
                 amount=round(amount, 2),
@@ -390,8 +393,7 @@ async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
         # Never write plaintext into those columns -- an updated encrypted_data blob from
         # the client is the only way to change them. No re-embedding either (no plaintext merchant).
         has_new_blob = "encrypted_data" in data and data["encrypted_data"] is not None
-        wants_merchant_or_desc = ("merchant" in data and data["merchant"] is not None) or \
-                                  ("description" in data and data["description"] is not None)
+        wants_merchant_or_desc = any(data.get(f) is not None for f in ENCRYPTED_FIELDS)
         if wants_merchant_or_desc and not has_new_blob:
             raise HTTPException(
                 400,
@@ -408,8 +410,7 @@ async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
         # encrypted. Never silently ignore that blob (doing so would write plaintext while
         # reporting success -- the mirror of the encrypted-row bug above).
         new_blob = data.get("encrypted_data")
-        wants_plaintext = ("merchant" in data and data["merchant"] is not None) or \
-                          ("description" in data and data["description"] is not None)
+        wants_plaintext = any(data.get(f) is not None for f in ENCRYPTED_FIELDS)
         if new_blob is not None:
             if wants_plaintext:
                 raise HTTPException(
@@ -670,34 +671,6 @@ async def delete_account(account_id: str, current_user=Depends(get_current_user)
     return {"status": "deleted", "transactions_removed": txn_count}
 
 
-@app.get("/api/summary")
-def get_summary():
-    json_path = DATA_DIR / "transactions_frontend.json"
-    if not json_path.exists():
-        return {"error": "No data found"}
-
-    with open(json_path, 'r') as f:
-        data = json.load(f)
-
-    total_in = sum(t['money_in'] for t in data if t['direction'] == 'IN')
-    total_out = sum(t['money_out'] for t in data if t['direction'] == 'OUT')
-
-    categories = {}
-    for t in data:
-        if t['direction'] == 'OUT':
-            categories[t['category']] = categories.get(t['category'], 0) + t['money_out']
-
-    top_category = max(categories, key=categories.get) if categories else 'None'
-
-    return {
-        "total_income": round(total_in, 2),
-        "total_spending": round(total_out, 2),
-        "net": round(total_in - total_out, 2),
-        "transactions": len(data),
-        "top_category": top_category,
-        "categories": {k: round(v, 2) for k, v in sorted(categories.items(), key=lambda x: -x[1])},
-    }
-
 @app.post("/api/upload-csv")
 async def upload_csv(file: UploadFile = File(...), current_user=Depends(get_current_user)):
     """Parse a CSV bank statement and return transactions for user review."""
@@ -789,15 +762,17 @@ async def categorize_local(request: Request, current_user=Depends(get_current_us
 
     user_id = uuid.UUID(current_user["user_id"])
     rules_r = await db.execute(select(CategoryRule).where(CategoryRule.user_id == user_id))
-    user_rules = [{"match_type": r.match_type, "match_value": r.match_value, "category": r.category}
+    user_rules = [{"match_type": r.match_type, "match_value": r.match_value, "category": r.category, "direction": r.direction}
                   for r in rules_r.scalars().all()]
     out: dict[str, str] = {}
     for it in items:
         merchant = (it.get("merchant") or "").strip()
         direction = it["direction"]
         key = f"{merchant}|{direction}"
-        # Tier 1: user-scoped DB rules
-        cat = next((r.get("category") for r in user_rules if _match_rule(r, merchant)), None)
+        # Tier 1: user-scoped DB rules. A rule with a set direction only applies to
+        # items of that same direction (an OUT-only rule must not match IN transactions).
+        cat = next((r.get("category") for r in user_rules
+                    if (not r.get("direction") or r.get("direction") == direction) and _match_rule(r, merchant)), None)
         # Tier 2: vector KNN over user's manually-categorized history
         if not cat:
             cat = await categorize_by_neighbors(user_id, merchant, direction, db)
@@ -990,13 +965,38 @@ async def upload_pdf(file: UploadFile = File(...), current_user=Depends(get_curr
 
     content = await file.read()
     result = parse_pdf(content)
+    reason = result.get("reason")
+    detected_bank = result.get("detected_bank")
+
+    page_count = None
+    try:
+        import fitz
+        _doc = fitz.open(stream=content, filetype="pdf")
+        page_count = _doc.page_count
+        _doc.close()
+    except Exception:
+        pass
+    print(f"[upload-pdf] filename={file.filename} size_bytes={len(content)} page_count={page_count} "
+          f"extracted_chars={len(result.get('raw_text', ''))} detected_bank={detected_bank} "
+          f"reason={reason} sha256={hashlib.sha256(content).hexdigest()}")
 
     if not result["recognized"]:
+        if reason == "no_parser":
+            message = (f"We recognized your {detected_bank} statement but can't read "
+                       f"{detected_bank} PDFs yet -- please export CSV instead")
+        elif reason == "scanned":
+            message = "This looks like a scanned image; text could not be extracted -- please export CSV instead"
+        elif reason == "open_error":
+            message = result.get("error", "Could not open PDF")
+        else:
+            message = "Could not recognize bank format. Raw text provided for review."
         return {
             "status": "unrecognized",
             "raw_text": result["raw_text"][:5000],  # first 5000 chars for review
-            "message": "Could not recognize bank format. Raw text provided for review.",
+            "message": message,
             "filename": file.filename,
+            "reason": reason,
+            "detected_bank": detected_bank,
         }
 
     # Check for redactions

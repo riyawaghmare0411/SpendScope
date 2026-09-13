@@ -19,6 +19,10 @@ async def get_db():
             await session.close()
 
 
+# Phase 12A: pgvector must exist before create_all -- models.py declares a Vector(384)
+# column, so CREATE TABLE needs the extension's type to exist first.
+_VECTOR_EXTENSION_STMT = "CREATE EXTENSION IF NOT EXISTS vector"
+
 # Idempotent ALTER TABLE / CREATE EXTENSION statements that run after metadata.create_all.
 # Postgres 9.6+ supports ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS.
 # Safe to run on every startup.
@@ -45,7 +49,6 @@ _PHASE10_ALTERS = [
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS due_day INTEGER",
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ",
     # Phase 12A: pgvector for local merchant-similarity categorization (no Claude)
-    "CREATE EXTENSION IF NOT EXISTS vector",
     "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS embedding vector(384)",
     "CREATE INDEX IF NOT EXISTS ix_transactions_embedding ON transactions USING hnsw (embedding vector_cosine_ops)",
     # Phase F: CategoryRule.direction (IN/OUT) migrated from legacy JSON rules
@@ -54,10 +57,24 @@ _PHASE10_ALTERS = [
 
 
 async def init_db():
+    # Step 1: vector extension, its own transaction, before create_all needs it.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(_VECTOR_EXTENSION_STMT))
+    except Exception as e:
+        print(f"[migration] FAILED: {_VECTOR_EXTENSION_STMT[:80]} -- {e}")
+        raise
+
+    # Step 2: create any missing tables.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        for stmt in _PHASE10_ALTERS:
-            try:
+
+    # Step 3: each ALTER/INDEX in its own transaction -- one failure must not silently
+    # abort the rest, and any failure must fail boot loudly instead of "booting healthy".
+    for stmt in _PHASE10_ALTERS:
+        try:
+            async with engine.begin() as conn:
                 await conn.execute(text(stmt))
-            except Exception as e:
-                print(f"[migration] skipped: {stmt[:80]} -- {e}")
+        except Exception as e:
+            print(f"[migration] FAILED: {stmt[:80]} -- {e}")
+            raise

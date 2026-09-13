@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # --- Config ---
 SECRET_KEY = os.getenv("JWT_SECRET", "spendscope-dev-secret-change-in-production")
@@ -72,6 +72,8 @@ async def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(
 
 # --- Pydantic schemas ---
 class SignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: str
     password: str
     name: str

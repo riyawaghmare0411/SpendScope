@@ -37,6 +37,10 @@ jobs:
         with:
           python-version: "3.13"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install OS packages (onnxruntime needs libgomp1)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgomp1
 
@@ -81,6 +85,9 @@ jobs:
 
       - name: Run tests/test_cat_check.py
         run: python tests/test_cat_check.py
+
+      - name: Run tests/test_encryption.py
+        run: python tests/test_encryption.py
 
       - name: Dump app.log on failure
         if: failure()

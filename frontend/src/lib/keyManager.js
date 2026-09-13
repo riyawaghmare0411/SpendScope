@@ -1,40 +1,127 @@
 // SpendScope Encryption Key Manager
-// Handles key lifecycle: derivation, session storage, recovery codes
+// Handles DEK lifecycle: setup, unlock (password/recovery code), session cache
 
-import { deriveKey, generateSalt } from './crypto.js';
+import { deriveKek, generateDek, wrapDek, unwrapDek, generateSalt } from './crypto.js';
 
-const SALT_KEY = 'spendscope_encryption_salt';
-const SESSION_KEY = 'spendscope_session_key';
+const SESSION_KEY = 'spendscope_session_dek';
 const RECOVERY_CODE_LENGTH = 8;
 const RECOVERY_CODE_COUNT = 10;
 const RECOVERY_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /**
- * Initialize encryption for a user session.
- * Derives the AES key from the password, stores the salt persistently
- * and the key in sessionStorage (cleared on tab close).
- * @param {string} password - User's password
- * @param {string|null} existingSalt - Base64 salt from server (null for first-time setup)
- * @returns {Promise<{key: CryptoKey, salt: string}>} The derived key and salt
+ * Pick a uniformly-random character from `chars` using rejection sampling,
+ * so the result is not skewed by `256 % chars.length` (the old `% 36` bias).
+ * @param {string} chars
+ * @returns {string}
  */
-export async function initializeEncryption(password, existingSalt = null) {
-  const salt = existingSalt || generateSalt();
-
-  // Persist salt in localStorage (not secret, just must be consistent)
-  localStorage.setItem(SALT_KEY, salt);
-
-  const key = await deriveKey(password, salt);
-  await storeKey(key);
-
-  return { key, salt };
+function randomChar(chars) {
+  const max = 256 - (256 % chars.length); // largest multiple of chars.length <= 256
+  let byte;
+  do {
+    byte = crypto.getRandomValues(new Uint8Array(1))[0];
+  } while (byte >= max);
+  return chars[byte % chars.length];
 }
 
 /**
- * Get the current encryption key from sessionStorage.
- * Returns null if not initialized or tab was closed.
- * @returns {Promise<CryptoKey|null>}
+ * Generate 10 recovery codes for account recovery.
+ * Each code is an 8-character alphanumeric string (A-Z, 0-9) that can
+ * independently unwrap the DEK once wrapped under it.
+ * @returns {string[]} Array of 10 recovery code strings
  */
-export async function getEncryptionKey() {
+export function generateRecoveryCodes() {
+  const codes = [];
+  for (let i = 0; i < RECOVERY_CODE_COUNT; i++) {
+    let code = '';
+    for (let j = 0; j < RECOVERY_CODE_LENGTH; j++) {
+      code += randomChar(RECOVERY_CODE_CHARS);
+    }
+    codes.push(code);
+  }
+  return codes;
+}
+
+/**
+ * Set up encryption for a user for the first time. Generates a salt and a
+ * DEK, then wraps that DEK under the password's KEK and under each of 10
+ * recovery-code KEKs -- every route unwraps to the SAME DEK.
+ * Only the wrapped blobs (never the password, DEK, or recovery codes) are
+ * meant to be sent to the server.
+ * @param {string} password
+ * @returns {Promise<{salt: string, dek: CryptoKey, wrappedPassword: {iv: string, ct: string}, recoveryCodes: string[], wrappedRecovery: Array<{iv: string, ct: string}>}>}
+ */
+export async function setupEncryption(password) {
+  const salt = generateSalt();
+  const dek = await generateDek();
+
+  const passwordKek = await deriveKek(password, salt);
+  const wrappedPassword = await wrapDek(passwordKek, dek);
+
+  const recoveryCodes = generateRecoveryCodes();
+  const wrappedRecovery = [];
+  for (const code of recoveryCodes) {
+    const recoveryKek = await deriveKek(code, salt);
+    wrappedRecovery.push(await wrapDek(recoveryKek, dek));
+  }
+
+  return { salt, dek, wrappedPassword, recoveryCodes, wrappedRecovery };
+}
+
+/**
+ * Unlock (recover the DEK) using the password. Throws if the password is wrong.
+ * @param {string} password
+ * @param {string} salt - Base64-encoded salt
+ * @param {{iv: string, ct: string}} wrappedPassword
+ * @returns {Promise<CryptoKey>} DEK
+ */
+export async function unlockWithPassword(password, salt, wrappedPassword) {
+  const kek = await deriveKek(password, salt);
+  return unwrapDek(kek, wrappedPassword); // throws on wrong password (bad auth tag)
+}
+
+/**
+ * Unlock (recover the DEK) using a recovery code. Tries each wrapped blob;
+ * the GCM auth tag validating against a given blob IS the proof the code is
+ * correct -- no code hashes are stored anywhere.
+ * @param {string} code
+ * @param {string} salt - Base64-encoded salt
+ * @param {Array<{iv: string, ct: string}>} wrappedRecoveryArray
+ * @returns {Promise<CryptoKey>} DEK
+ */
+export async function unlockWithRecoveryCode(code, salt, wrappedRecoveryArray) {
+  const kek = await deriveKek(code, salt);
+  for (const wrapped of wrappedRecoveryArray) {
+    try {
+      return await unwrapDek(kek, wrapped);
+    } catch {
+      // Auth tag failed against this slot -- not a match, try the next one.
+    }
+  }
+  throw new Error('Invalid recovery code');
+}
+
+/**
+ * Cache the DEK in sessionStorage (cleared automatically when the tab closes).
+ *
+ * DELIBERATE ACCEPTED TRADE-OFF: this requires the DEK to be extractable, so
+ * it is stored here as a plain JWK -- readable by any script running in this
+ * origin. A single XSS compromises all past and future data with no rotation
+ * path. Making the DEK non-extractable would close that hole but breaks this
+ * session-cache convenience (the key could never be exported to sessionStorage
+ * in the first place, forcing re-derivation from password/recovery code on
+ * every page load). Chosen deliberately, not an oversight.
+ * @param {CryptoKey} dek
+ */
+export async function storeDek(dek) {
+  const jwk = await crypto.subtle.exportKey('jwk', dek);
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(jwk));
+}
+
+/**
+ * Get the cached DEK from sessionStorage.
+ * @returns {Promise<CryptoKey|null>} null if not present or corrupted
+ */
+export async function getDek() {
   const jwk = sessionStorage.getItem(SESSION_KEY);
   if (!jwk) return null;
 
@@ -47,72 +134,14 @@ export async function getEncryptionKey() {
       ['encrypt', 'decrypt'],
     );
   } catch {
-    // Corrupted key data -- clear it
-    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY); // corrupted -- clear it
     return null;
   }
 }
 
 /**
- * Store a CryptoKey in sessionStorage as JWK.
- * Session storage is cleared when the tab closes.
- * @param {CryptoKey} key - AES-GCM key to store
+ * Clear the cached DEK (call on logout).
  */
-export async function storeKey(key) {
-  const jwk = await crypto.subtle.exportKey('jwk', key);
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(jwk));
-}
-
-/**
- * Clear the encryption key from memory (call on logout).
- */
-export function clearKey() {
+export function clearDek() {
   sessionStorage.removeItem(SESSION_KEY);
-}
-
-/**
- * Generate 10 recovery codes for account recovery.
- * Each code is an 8-character alphanumeric string (A-Z, 0-9)
- * that can independently derive the encryption key.
- * @returns {string[]} Array of 10 recovery code strings
- */
-export function generateRecoveryCodes() {
-  const codes = [];
-  for (let i = 0; i < RECOVERY_CODE_COUNT; i++) {
-    const bytes = crypto.getRandomValues(new Uint8Array(RECOVERY_CODE_LENGTH));
-    let code = '';
-    for (let j = 0; j < RECOVERY_CODE_LENGTH; j++) {
-      code += RECOVERY_CODE_CHARS[bytes[j] % RECOVERY_CODE_CHARS.length];
-    }
-    codes.push(code);
-  }
-  return codes;
-}
-
-/**
- * Derive the encryption key from a recovery code.
- * Uses the same PBKDF2 process as password derivation but with the
- * recovery code as the password input.
- * @param {string} code - One of the generated recovery codes
- * @param {string} salt - Base64-encoded salt (same salt used for password derivation)
- * @returns {Promise<CryptoKey>} AES-GCM key
- */
-export async function deriveKeyFromRecoveryCode(code, salt) {
-  return deriveKey(code, salt);
-}
-
-/**
- * Check if encryption has been initialized (salt exists in localStorage).
- * @returns {boolean}
- */
-export function isEncryptionInitialized() {
-  return localStorage.getItem(SALT_KEY) !== null;
-}
-
-/**
- * Get the stored salt from localStorage.
- * @returns {string|null} Base64-encoded salt, or null if not initialized
- */
-export function getSalt() {
-  return localStorage.getItem(SALT_KEY);
 }

@@ -25,7 +25,13 @@ class User(Base):
     country: Mapped[Optional[str]] = mapped_column(sa.String(100))
     currency: Mapped[str] = mapped_column(sa.String(10), default="USD")
     encryption_salt: Mapped[Optional[str]] = mapped_column(sa.String(64), nullable=True)
+    # DEPRECATED (Phase E): the new envelope scheme stores no recovery codes and no hashes --
+    # recovery works by trying to unwrap wrapped_dek, where a valid GCM auth tag IS the proof.
+    # Column left in place rather than dropped (dropping columns on a live DB is riskier).
     recovery_codes_hash: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    # Phase E: envelope-encrypted DEK. JSON: {"v":1,"password":{"iv":"..","ct":".."},"recovery":[{"iv":"..","ct":".."}, ...]}
+    # All ciphertext -- the server cannot decrypt any of it, which is the point.
+    wrapped_dek: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

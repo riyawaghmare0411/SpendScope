@@ -3,8 +3,8 @@ import Papa from 'papaparse'
 import jsPDF from 'jspdf'
 
 import { API_BASE, themes, COLORS, CAT_COLORS, CURRENCIES, NON_DISCRETIONARY, COUNTRIES, SAVINGS_TIPS, MERCHANT_CATEGORIES, categorizeWithRules, PEER_BENCHMARKS, fmt, fmtShort, NAV, detectColumns, parseFlexDate } from './constants'
-import { encryptTransactions, decryptTransactions } from './lib/crypto.js'
-import { initializeEncryption, getEncryptionKey, clearKey } from './lib/keyManager.js'
+import { encryptFields, decryptFields, verifyRoundTrip, ENCRYPTED_FIELDS } from './lib/crypto.js'
+import { unlockWithPassword, storeDek, getDek, clearDek } from './lib/keyManager.js'
 import { Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip } from './components/ui'
 import { AuthPages } from './components/AuthPages'
 import { DashboardPage } from './components/DashboardPage'
@@ -18,6 +18,7 @@ import RulesPage from './components/RulesPage'
 import UploadPage from './components/UploadPage'
 import Sidebar from './components/Sidebar'
 import ProfileModal from './components/ProfileModal'
+import EncryptionSettings from './components/EncryptionSettings'
 
 // ========== MAIN APP ==========
 function App() {
@@ -25,7 +26,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState(''), [filterCat, setFilterCat] = useState('All'), [dragOver, setDragOver] = useState(false), [insightsSeen, setInsightsSeen] = useState(false)
   const [userName, setUserName] = useState(() => localStorage.getItem('spendscope_name') || ''), [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('spendscope_name'))
   const [currency, setCurrency] = useState('$'), [chartRange, setChartRange] = useState('All'), [globalRange, setGlobalRange] = useState('All')
-  const [uploadStatus, setUploadStatus] = useState(null), [savingsReduction, setSavingsReduction] = useState(25), [showProfile, setShowProfile] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState(null), [savingsReduction, setSavingsReduction] = useState(25), [showProfile, setShowProfile] = useState(false), [showEncryption, setShowEncryption] = useState(false)
   const [budgets, setBudgets] = useState(() => JSON.parse(localStorage.getItem('spendscope_budgets') || '{}')), [editingBudget, setEditingBudget] = useState(null), [budgetInputVal, setBudgetInputVal] = useState('')
   const [accounts, setAccounts] = useState(() => JSON.parse(localStorage.getItem('spendscope_accounts') || '[]')), [activeAccount, setActiveAccount] = useState('All'), [uploadAccountName, setUploadAccountName] = useState('')
   const [expandedMerchant, setExpandedMerchant] = useState(null), [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7))
@@ -54,14 +55,14 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
   const [encryptionKey, setEncryptionKey] = useState(null)
-  const [recoveryCodesShown, setRecoveryCodesShown] = useState(null) // shown once after signup
+  const [decryptError, setDecryptError] = useState(null)
   const fileInputRef = useRef(null), welcomeInputRef = useRef(null), profileInputRef = useRef(null)
   const t = themes[mode]
 
   const authHeaders = () => authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
 
   const handleLogin = async (email, password) => {
-    setAuthLoading(true); setAuthError('')
+    setAuthLoading(true); setAuthError(''); setDecryptError(null)
     try {
       const r = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -69,16 +70,31 @@ function App() {
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.detail || 'Login failed')
+      // E2: unlock the DEK as part of login. A failed unlock must NOT block login --
+      // that would lock the user out of their entire account over a key problem. Instead
+      // login proceeds and the failure surfaces as a loud, persistent decryptError banner.
+      let dek = null
+      let unlockError = null
+      if (data.user.encryption_salt && data.user.wrapped_dek) {
+        try {
+          const envelope = typeof data.user.wrapped_dek === 'string' ? JSON.parse(data.user.wrapped_dek) : data.user.wrapped_dek
+          if (!envelope || typeof envelope !== 'object' || !envelope.password || !envelope.password.iv || !envelope.password.ct) {
+            throw new Error('stored encryption envelope is malformed (missing password slot)')
+          }
+          dek = await unlockWithPassword(password, data.user.encryption_salt, envelope.password)
+          await storeDek(dek)
+        } catch (e) {
+          unlockError = `Could not unlock your encrypted data: ${e.message || 'invalid password or corrupted key data'}. Your data is safe -- log out and back in, or recover with a code from Encryption settings, to unlock it.`
+        }
+      }
       localStorage.setItem('spendscope_token', data.access_token)
       localStorage.setItem('spendscope_user', JSON.stringify(data.user))
       setAuthToken(data.access_token)
       setAuthUser(data.user)
       setUserName(data.user.name)
       setCurrency(data.user.currency === 'USD' ? '$' : data.user.currency === 'GBP' ? '\u00A3' : data.user.currency === 'EUR' ? '\u20AC' : data.user.currency === 'INR' ? '\u20B9' : '$')
-      if (data.user.encryption_salt) {
-        const { key } = await initializeEncryption(password, data.user.encryption_salt)
-        setEncryptionKey(key)
-      }
+      if (dek) setEncryptionKey(dek)
+      if (unlockError) setDecryptError(unlockError)
     } catch (e) { setAuthError(e.message) }
     finally { setAuthLoading(false) }
   }
@@ -106,8 +122,9 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('spendscope_token')
     localStorage.removeItem('spendscope_user')
-    clearKey()
+    clearDek()
     setEncryptionKey(null)
+    setDecryptError(null)
     setAuthToken(null)
     setAuthUser(null)
     setData([])
@@ -131,17 +148,28 @@ function App() {
       const r = await fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() })
       const j = await r.json()
       if (Array.isArray(j)) {
-        const key = await getEncryptionKey()
-        let processed = j
-        if (key && j.length > 0 && j[0].encrypted_data) {
+        const dek = await getDek()
+        // E5: decide per row -- a row with encrypted_data gets decrypted, a row without
+        // (e.g. a future Plaid row) passes through untouched. Never silently swallow a
+        // decrypt failure into a blank placeholder row.
+        let failCount = 0
+        const processed = []
+        for (const row of j) {
+          if (!row.encrypted_data) { processed.push(row); continue }
+          if (!dek) { failCount++; processed.push({ ...row, merchant: '(locked)', description: '(locked)' }); continue }
           try {
-            processed = await decryptTransactions(key, j.map(t => ({ iv: JSON.parse(t.encrypted_data).iv, ciphertext: JSON.parse(t.encrypted_data).ciphertext, date_iso: t.date_iso, id: t.id, import_batch_id: t.import_batch_id })))
-            processed = processed.map((t, i) => ({ ...t, id: j[i].id, import_batch_id: j[i].import_batch_id, account_id: j[i].account_id }))
-          } catch { processed = j }
+            const blob = typeof row.encrypted_data === 'string' ? JSON.parse(row.encrypted_data) : row.encrypted_data
+            const fields = await decryptFields(dek, blob)
+            processed.push({ ...row, ...fields })
+          } catch {
+            failCount++
+            processed.push({ ...row, merchant: '(decrypt failed)', description: '(decrypt failed)' })
+          }
         }
+        setDecryptError(failCount > 0 ? `${failCount} transaction${failCount !== 1 ? 's' : ''} could not be decrypted. Log out and log back in to unlock them.` : null)
         setData(processed.map(d => ({ ...d, _account: d._account || 'Primary', account_id: d.account_id || null })))
       }
-    } catch (e) { console.error('Failed to load transactions:', e) }
+    } catch (e) { console.error('Failed to load transactions:', e); setDecryptError(`Failed to load transactions: ${e.message}`) }
   }
 
   // Phase 10D: hydrate accounts from server (single source of truth -- replaces localStorage)
@@ -156,6 +184,18 @@ function App() {
   }
 
   useEffect(() => { if (!authToken) { setLoading(false); return }; Promise.all([refreshTransactions(), refreshAccounts()]).finally(() => setLoading(false)) }, [authToken])
+  // Blocker 4a: encryptionKey only ever gets set inside handleLogin -- on a page refresh
+  // (token still in localStorage) it resets to null even though the DEK may still be
+  // cached in sessionStorage (storeDek persists across refresh, only tab-close clears it).
+  // Rehydrate it here so a refresh doesn't silently look "unlocked" while actually locked.
+  useEffect(() => { if (!authToken || encryptionKey) return; getDek().then(dek => { if (dek) setEncryptionKey(dek) }) }, [authToken, encryptionKey])
+  // Blocker 4b: authUser was persisted to localStorage ONLY in handleLogin/handleSignup, but
+  // setAuthUser is also called by EncryptionSettings (on enable) and ProfileModal. Without this,
+  // enabling encryption updated React state only -- a second tab (or a browser restart) rebuilt
+  // authUser from stale localStorage with no wrapped_dek, the import guard read false, and
+  // merchant/description were uploaded in CLEARTEXT with no error. Persist every update here so
+  // there is one source of truth rather than one write site per caller.
+  useEffect(() => { if (authUser) localStorage.setItem('spendscope_user', JSON.stringify(authUser)) }, [authUser])
   useEffect(() => { localStorage.setItem('spendscope_budgets', JSON.stringify(budgets)) }, [budgets])
   useEffect(() => { localStorage.setItem('spendscope_accounts', JSON.stringify(accounts)) }, [accounts])
 
@@ -413,6 +453,13 @@ function App() {
       const acctName = baseLabel || fallback
       const kept = imp.transactions.filter((_, i) => !imp.selectedRows.has(i))
       if (kept.length === 0) continue
+      // Blocker 4b: if this account has encryption configured but the DEK isn't available
+      // in this browser (locked session), refuse to send plaintext -- abort loudly instead
+      // of silently downgrading merchant/description to cleartext on the server.
+      if (authToken && !encryptionKey && authUser?.encryption_salt && authUser?.wrapped_dek) {
+        errors.push(`${imp.filename}: encryption is enabled for your account but the key is locked in this browser -- log out and back in to unlock it, then retry this import.`)
+        continue
+      }
       const importTag = imp.id
       const taggedData = kept.map(d => ({ ...d, _account: acctName, _importId: importTag }))
       setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
@@ -423,14 +470,22 @@ function App() {
         const sourceType = imp.filename?.endsWith('.pdf') ? 'pdf' : 'csv'
         let importPayload = { transactions: kept, bank_name: imp.bankName, filename: imp.filename, account_name: acctName, source_type: sourceType }
         if (encryptionKey) {
+          // E4: never downgrade to plaintext on failure -- abort this file's import instead.
           try {
-            const encrypted = await encryptTransactions(encryptionKey, kept)
-            importPayload = {
-              transactions: encrypted.map(e => ({ date_iso: e.date_iso, encrypted_data: JSON.stringify({ iv: e.iv, ciphertext: e.ciphertext }) })),
-              encrypted: true,
-              bank_name: imp.bankName, filename: imp.filename, account_name: acctName, source_type: sourceType,
+            const verified = await verifyRoundTrip(encryptionKey, kept[0])
+            if (!verified) throw new Error('round-trip verification failed')
+            const encryptedTxns = []
+            for (const txn of kept) {
+              const blob = await encryptFields(encryptionKey, txn)
+              const plainCopy = { ...txn }
+              for (const f of ENCRYPTED_FIELDS) delete plainCopy[f]
+              encryptedTxns.push({ ...plainCopy, encrypted_data: blob })
             }
-          } catch (e) { console.error('Encryption failed, sending unencrypted:', e) }
+            importPayload = { transactions: encryptedTxns, encrypted: true, bank_name: imp.bankName, filename: imp.filename, account_name: acctName, source_type: sourceType }
+          } catch (e) {
+            errors.push(`${imp.filename}: encryption failed (${e.message}) -- import aborted, no data was sent.`)
+            continue
+          }
         }
         try {
           const r = await fetch(`${API_BASE}/api/transactions/import`, {
@@ -513,19 +568,6 @@ function App() {
   if (!authToken) {
     return <AuthPages t={t} mode={mode} setMode={setMode} authPage={authPage} setAuthPage={setAuthPage} authError={authError} setAuthError={setAuthError} authLoading={authLoading} handleLogin={handleLogin} handleSignup={handleSignup} COUNTRIES={COUNTRIES} CURRENCIES={CURRENCIES} />
   }
-
-  const recoveryCodesModal = recoveryCodesShown && (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: t.card, borderRadius: '16px', padding: '32px', maxWidth: '450px', width: '90%' }}>
-        <h2 style={{ color: t.text, margin: '0 0 8px', fontSize: '20px' }}>Save Your Recovery Codes</h2>
-        <p style={{ color: t.textLight, fontSize: '13px', margin: '0 0 16px' }}>If you forget your password, these codes are the ONLY way to recover your data. Save them somewhere safe.</p>
-        <div style={{ background: t.bg, borderRadius: '8px', padding: '16px', fontFamily: 'monospace', fontSize: '15px', color: t.text, lineHeight: '2' }}>
-          {recoveryCodesShown.map((code, i) => <div key={i}>{i+1}. {code}</div>)}
-        </div>
-        <button onClick={() => setRecoveryCodesShown(null)} style={{ marginTop: '16px', width: '100%', padding: '12px', background: t.teal, color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>I've saved my recovery codes</button>
-      </div>
-    </div>
-  )
 
   if (loading) return (
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
@@ -699,8 +741,6 @@ function App() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", transition: 'background 0.4s ease' }}>
 
-      {recoveryCodesModal}
-
       {showWelcome && !loading && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
           <div style={{ background: t.card, borderRadius: '24px', padding: '40px', maxWidth: '400px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center', position: 'relative' }}>
@@ -718,6 +758,10 @@ function App() {
         <ProfileModal t={t} authUser={authUser} showProfile={showProfile} setShowProfile={setShowProfile} profileInputRef={profileInputRef} authToken={authToken} authHeaders={authHeaders} setAuthUser={setAuthUser} API_BASE={API_BASE} userName={userName} setUserName={setUserName} handleLogout={handleLogout} Sphere={Sphere} onWipeData={handleWipeData} />
       )}
 
+      {showEncryption && (
+        <EncryptionSettings t={t} onClose={() => { setShowEncryption(false); getDek().then(dek => { if (dek) setEncryptionKey(dek) }) }} API_BASE={API_BASE} authToken={authToken} authHeaders={authHeaders} authUser={authUser} setAuthUser={setAuthUser} onSessionExpired={handleLogout} Sphere={Sphere} />
+      )}
+
       <Sidebar t={t} mode={mode} setMode={setMode} page={page} setPage={setPage} globalRange={globalRange} setGlobalRange={setGlobalRange} currency={currency} setCurrency={setCurrency} CURRENCIES={CURRENCIES} NAV={NAV} userName={userName} setShowProfile={setShowProfile} handleLogout={handleLogout} insightsSeen={insightsSeen} setInsightsSeen={setInsightsSeen} anomalies={anomalies} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} />
 
       {/* MAIN CONTENT */}
@@ -726,12 +770,23 @@ function App() {
         <Sphere size="100px" color={t.sand} top="250px" right="-20px" opacity={0.3} />
         <Sphere size="80px" color={t.mint} bottom="200px" left="-10px" opacity={0.3} />
         <div style={{ position: 'relative', zIndex: 1, padding: '32px 36px' }}>
-          <div style={{ marginBottom: '32px' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: 700, color: t.text, margin: 0 }}>
-              {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'coach' && 'AI Money Coach'}{page === 'rules' && 'Category Rules'}{page === 'upload' && 'Upload Statement'}
-            </h1>
-            <p style={{ color: t.textMuted, fontSize: '13px', margin: '4px 0 0' }}>{dateRangeStr}{globalRange !== 'All' ? ` (${globalRange})` : ''}</p>
+          <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <h1 style={{ fontSize: '24px', fontWeight: 700, color: t.text, margin: 0 }}>
+                {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'coach' && 'AI Money Coach'}{page === 'rules' && 'Category Rules'}{page === 'upload' && 'Upload Statement'}
+              </h1>
+              <p style={{ color: t.textMuted, fontSize: '13px', margin: '4px 0 0' }}>{dateRangeStr}{globalRange !== 'All' ? ` (${globalRange})` : ''}</p>
+            </div>
+            <button onClick={() => setShowEncryption(true)} style={{ padding: '8px 14px', borderRadius: '10px', border: `1px solid ${t.border}`, background: 'transparent', color: t.textLight, fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              {authUser?.wrapped_dek ? 'Encryption: ON' : 'Enable Encryption'}
+            </button>
           </div>
+
+          {decryptError && (
+            <div style={{ ...lc, marginBottom: '20px', padding: '16px 24px', border: `1px solid ${t.red}40`, background: `${t.red}10` }}>
+              <p style={{ fontSize: '14px', color: t.text, margin: 0, fontWeight: 500 }}>{decryptError}</p>
+            </div>
+          )}
 
           {page === 'overview' && (
             <DashboardPage t={t} mode={mode} currency={currency} dc={dc} lc={lc} userName={userName} monthlyAvg={monthlyAvg} catData={catData} lifeSpend={lifeSpend} monthCount={monthCount} net={net} totalIn={totalIn} totalOut={totalOut} filteredData={filteredData} weekDiff={weekDiff} weekLabel={weekLabel} thisWeekSpend={thisWeekSpend} weekPct={weekPct} dData={dData} chartRange={chartRange} setChartRange={setChartRange} mData={mData} topM={topM} recentTxns={recentTxns} handleExportPDF={handleExportPDF} cashFlowChart={cashFlowChart} forecastMonths={forecastMonths} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} onAddCard={() => setPage('upload')} onEditAccount={(a) => { const due = prompt(`Set payment due day (1-31) for ${a.name}, or blank to clear:`, a.due_day || ''); if (due === null) return; const v = due.trim() === '' ? null : parseInt(due, 10); fetch(`${API_BASE}/api/accounts/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ due_day: v }) }).then(() => refreshAccounts()) }} />

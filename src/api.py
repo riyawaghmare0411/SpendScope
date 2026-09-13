@@ -58,8 +58,6 @@ async def signup(req: SignupRequest, db=Depends(get_db)):
         name=req.name,
         country=req.country,
         currency=req.currency,
-        encryption_salt=req.encryption_salt,
-        recovery_codes_hash=req.recovery_codes_hash,
     )
     db.add(user)
     await db.commit()
@@ -75,6 +73,8 @@ async def signup(req: SignupRequest, db=Depends(get_db)):
             "name": user.name,
             "country": user.country,
             "currency": user.currency,
+            "encryption_salt": user.encryption_salt,
+            "wrapped_dek": user.wrapped_dek,
         }
     }
 
@@ -96,6 +96,8 @@ async def login(req: LoginRequest, db=Depends(get_db)):
             "name": user.name,
             "country": user.country,
             "currency": user.currency,
+            "encryption_salt": user.encryption_salt,
+            "wrapped_dek": user.wrapped_dek,
         }
     }
 
@@ -113,6 +115,7 @@ async def get_me(current_user=Depends(get_current_user), db=Depends(get_db)):
         "country": user.country,
         "currency": user.currency,
         "encryption_salt": user.encryption_salt,
+        "wrapped_dek": user.wrapped_dek,
     }
 
 
@@ -141,45 +144,82 @@ async def update_me(request: Request, current_user=Depends(get_current_user), db
 
 @app.post("/api/auth/encryption-setup")
 async def encryption_setup(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
-    """Set up encryption for an existing user (migration path)."""
+    """Set up envelope encryption for a user. Client sends only the salt and the
+    DEK already wrapped under the password/recovery-code KEKs -- the server never
+    sees a plaintext recovery code or a derivable key."""
     data = await request.json()
+    if data.get("recovery_codes") or data.get("recovery_codes_hash"):
+        raise HTTPException(400, "recovery codes must not be sent to the server; they are used client-side only")
+
     encryption_salt = data.get("encryption_salt")
-    recovery_codes_hash = data.get("recovery_codes_hash")
-    if not encryption_salt:
-        raise HTTPException(400, "encryption_salt is required")
+    wrapped_dek = data.get("wrapped_dek")
+    if not encryption_salt or not wrapped_dek:
+        raise HTTPException(400, "encryption_salt and wrapped_dek are required")
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
-    if user.encryption_salt:
+    if user.encryption_salt or user.wrapped_dek:
         raise HTTPException(409, "Encryption already configured for this user")
 
     user.encryption_salt = encryption_salt
-    user.recovery_codes_hash = recovery_codes_hash
+    user.wrapped_dek = wrapped_dek if isinstance(wrapped_dek, str) else json.dumps(wrapped_dek)
     await db.commit()
     return {"status": "encryption_configured"}
 
 
-@app.post("/api/auth/verify-recovery")
-async def verify_recovery(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
-    """Verify a recovery code against stored hashes."""
+@app.post("/api/auth/encryption-rewrap")
+async def encryption_rewrap(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Replace the stored wrapped DEK, e.g. after a password change or after a
+    successful client-side recovery-code unlock. The DEK itself never changes --
+    only the wrapping (password/recovery KEKs) around it."""
     data = await request.json()
-    code_hash = data.get("recovery_code_hash")
-    if not code_hash:
-        raise HTTPException(400, "recovery_code_hash is required")
+    wrapped_dek = data.get("wrapped_dek")
+    if not wrapped_dek:
+        raise HTTPException(400, "wrapped_dek is required")
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
-    if not user.recovery_codes_hash:
-        raise HTTPException(404, "No recovery codes configured")
+    if not user.wrapped_dek:
+        raise HTTPException(409, "Encryption is not configured for this user")
 
-    stored_hashes = json.loads(user.recovery_codes_hash)
-    if code_hash in stored_hashes:
-        return {"valid": True}
-    return {"valid": False}
+    user.wrapped_dek = wrapped_dek if isinstance(wrapped_dek, str) else json.dumps(wrapped_dek)
+    await db.commit()
+    return {"status": "rewrapped"}
+
+
+@app.post("/api/auth/change-password")
+async def change_password(request: Request, current_user=Depends(get_current_user), db=Depends(get_db)):
+    """Change the account login password. If encryption is configured for this user,
+    the SAME request must include a wrapped_dek re-wrapped under the new password --
+    changing the password alone would leave the stored envelope permanently unopenable
+    (it's still wrapped under the old password's KEK), orphaning the DEK forever."""
+    data = await request.json()
+    new_password = data.get("new_password")
+    if not new_password:
+        raise HTTPException(400, "new_password is required")
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(current_user["user_id"])))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    wrapped_dek = data.get("wrapped_dek")
+    if user.wrapped_dek and not wrapped_dek:
+        raise HTTPException(
+            400,
+            "Encryption is configured for this account; a wrapped_dek re-wrapped "
+            "under the new password must be included in this same request.",
+        )
+
+    user.password_hash = hash_password(new_password)
+    if wrapped_dek:
+        user.wrapped_dek = wrapped_dek if isinstance(wrapped_dek, str) else json.dumps(wrapped_dek)
+    await db.commit()
+    return {"status": "password_changed"}
 
 
 # --- Transaction Endpoints ---
@@ -251,6 +291,11 @@ async def import_transactions(request: Request, current_user=Depends(get_current
     encrypted = data.get("encrypted", False)
     incoming = data.get("transactions", [])
 
+    if encrypted:
+        user_row = await db.get(User, user_id)
+        if not user_row or not user_row.wrapped_dek:
+            raise HTTPException(400, "Encryption is not configured for this user; cannot import encrypted transactions")
+
     # Phase 12D: batch-embed merchant strings up front for speed (single ONNX inference).
     # Encrypted-mode transactions skip embedding (no plaintext merchant).
     if not encrypted and incoming:
@@ -267,18 +312,26 @@ async def import_transactions(request: Request, current_user=Depends(get_current
             continue
 
         if encrypted:
-            # Encrypted mode: store only date + encrypted blob
+            # Option A: only merchant + description are encrypted. Real amount, date,
+            # direction, category, type and balance stay plaintext so Coach/charts/
+            # insights keep working. merchant stays NULL server-side (no plaintext).
             enc_blob = t.get("encrypted_data")
             if not enc_blob:
                 continue
+            amount = float(t.get("amount", 0) or t.get("money_out", 0) or t.get("money_in", 0))
             txn = TxnModel(
                 import_batch_id=batch.id,
                 account_id=account.id,
                 user_id=user_id,
                 date=tx_date,
-                description="[encrypted]",
-                amount=0,
-                direction="OUT",
+                description="",
+                category=t.get("category", ""),
+                type=t.get("type", ""),
+                amount=round(amount, 2),
+                balance=round(float(t.get("balance", 0) or 0), 2) if t.get("balance") else None,
+                direction=t.get("direction", "OUT"),
+                is_redacted=t.get("is_redacted", False),
+                category_source=t.get("category_source", "auto"),
                 encrypted_data=json.dumps(enc_blob) if isinstance(enc_blob, dict) else enc_blob,
             )
         else:
@@ -332,19 +385,59 @@ async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
             raise HTTPException(400, "amount must be > 0")
         txn.amount = amt
         changes["amount"] = amt
-    if "merchant" in data and data["merchant"] is not None:
-        m = str(data["merchant"]).strip()
-        if m:
-            txn.merchant = m[:255]
-            changes["merchant"] = txn.merchant
-            # Phase 12D: re-embed when merchant changes so KNN learns the corrected name.
-            try:
-                txn.embedding = embed_text(txn.merchant)
-            except Exception:
-                pass  # never block a category fix on embedding failure
-    if "description" in data and data["description"] is not None:
-        txn.description = str(data["description"])
-        changes["description"] = txn.description
+    if txn.encrypted_data:
+        # Encrypted row (Option A): merchant/description live only inside encrypted_data.
+        # Never write plaintext into those columns -- an updated encrypted_data blob from
+        # the client is the only way to change them. No re-embedding either (no plaintext merchant).
+        has_new_blob = "encrypted_data" in data and data["encrypted_data"] is not None
+        wants_merchant_or_desc = ("merchant" in data and data["merchant"] is not None) or \
+                                  ("description" in data and data["description"] is not None)
+        if wants_merchant_or_desc and not has_new_blob:
+            raise HTTPException(
+                400,
+                "This transaction's merchant/description are encrypted. Submit a "
+                "re-encrypted encrypted_data blob to change them -- plaintext merchant/"
+                "description cannot be applied to an encrypted row.",
+            )
+        if has_new_blob:
+            blob = data["encrypted_data"]
+            txn.encrypted_data = json.dumps(blob) if isinstance(blob, dict) else blob
+            changes["encrypted_data"] = True
+    else:
+        # Plaintext row. A client may supply encrypted_data here to convert this row to
+        # encrypted. Never silently ignore that blob (doing so would write plaintext while
+        # reporting success -- the mirror of the encrypted-row bug above).
+        new_blob = data.get("encrypted_data")
+        wants_plaintext = ("merchant" in data and data["merchant"] is not None) or \
+                          ("description" in data and data["description"] is not None)
+        if new_blob is not None:
+            if wants_plaintext:
+                raise HTTPException(
+                    400,
+                    "Ambiguous update: supply either plaintext merchant/description OR an "
+                    "encrypted_data blob, not both.",
+                )
+            txn.encrypted_data = json.dumps(new_blob) if isinstance(new_blob, dict) else new_blob
+            # merchant/description now live inside the blob; clear the plaintext columns
+            # and the embedding derived from the old plaintext merchant.
+            txn.merchant = None
+            txn.description = ""
+            txn.embedding = None
+            changes["encrypted_data"] = True
+        else:
+            if "merchant" in data and data["merchant"] is not None:
+                m = str(data["merchant"]).strip()
+                if m:
+                    txn.merchant = m[:255]
+                    changes["merchant"] = txn.merchant
+                    # Phase 12D: re-embed when merchant changes so KNN learns the corrected name.
+                    try:
+                        txn.embedding = embed_text(txn.merchant)
+                    except Exception:
+                        pass  # never block a category fix on embedding failure
+            if "description" in data and data["description"] is not None:
+                txn.description = str(data["description"])
+                changes["description"] = txn.description
     return changes
 
 
@@ -663,7 +756,7 @@ async def get_coaching_stats(user=Depends(get_current_user), db=Depends(get_db))
         "money_in": float(t.amount) if t.direction == "IN" else 0,
         "money_out": float(t.amount) if t.direction == "OUT" else 0,
         "direction": t.direction,
-    } for t in txn_rows.scalars().all() if not t.is_redacted and not t.encrypted_data]
+    } for t in txn_rows.scalars().all() if not t.is_redacted]
     return compute_stats(transactions, user_row.currency or "$")
 
 

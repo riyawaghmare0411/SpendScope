@@ -77,8 +77,6 @@ class SignupRequest(BaseModel):
     name: str
     country: str = ""
     currency: str = "USD"
-    encryption_salt: str | None = None
-    recovery_codes_hash: str | None = None
 
 
 class LoginRequest(BaseModel):

@@ -26,7 +26,7 @@ const PlaidLauncher = ({ linkToken, onSuccess, onExit }) => {
  *
  * If backend returns 503 (no credentials) we show "Coming soon" instead of erroring.
  */
-export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
+export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete, onSessionExpired }) => {
   const [items, setItems] = useState([])
   const [linkToken, setLinkToken] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -39,11 +39,14 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
     try {
       const r = await fetch(`${API_BASE}/api/plaid/items`, { headers: authHeaders() })
       if (r.status === 503) { setUnavailable(true); return }
-      if (r.ok) setItems(await r.json())
+      if (r.status === 401) { if (onSessionExpired) onSessionExpired(); else setError('Session expired -- please log in again'); return }
+      if (!r.ok) { setError(`Could not load connected banks (HTTP ${r.status})`); return }
+      setItems(await r.json())
+      setError(null)
     } catch (e) {
       setError(`Could not load connected banks: ${e.message || 'network error'}`)
     }
-  }, [authToken, authHeaders])
+  }, [authToken, authHeaders, onSessionExpired])
 
   // Standard fetch-on-mount. setState occurs after the awaited fetch, not synchronously, so the
   // cascading-render warning does not apply here. The real improvement -- memoizing authHeaders in
@@ -105,21 +108,31 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete }) => {
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ item_id: itemId })
       })
-      if (r.ok && onSyncComplete) onSyncComplete()
+      if (r.status === 401) { if (onSessionExpired) onSessionExpired(); else setError('Session expired -- please log in again'); return }
+      if (!r.ok) { setError(`Sync failed (HTTP ${r.status})`); return }
+      // Only refresh items (and clear the error) on the success branch -- fetchItems'
+      // own setError(null) on a successful GET would otherwise wipe the failure
+      // message we just set above, making a sync error invisible after one round trip.
+      setError(null)
       await fetchItems()
+      if (onSyncComplete) onSyncComplete()
     } catch (e) {
       setError(`Sync failed: ${e.message || 'network error'}`)
+    } finally {
+      setSyncing(null)
     }
-    setSyncing(null)
   }
 
   const disconnect = async (itemId) => {
     if (!confirm('Disconnect this bank? Your transactions will stay, but auto-sync stops.')) return
     try {
-      await fetch(`${API_BASE}/api/plaid/items/${itemId}`, {
+      const r = await fetch(`${API_BASE}/api/plaid/items/${itemId}`, {
         method: 'DELETE',
         headers: authHeaders()
       })
+      if (r.status === 401) { if (onSessionExpired) onSessionExpired(); else setError('Session expired -- please log in again'); return }
+      if (!r.ok) { setError(`Could not disconnect (HTTP ${r.status})`); return }
+      setError(null)
       await fetchItems()
     } catch (e) {
       setError(`Could not disconnect: ${e.message || 'network error'}`)

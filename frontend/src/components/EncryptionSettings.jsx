@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { PAYLOAD_VERSION, ENCRYPTED_FIELDS, verifyRoundTrip } from '../lib/crypto'
-import { setupEncryption, unlockWithRecoveryCode, storeDek } from '../lib/keyManager'
+import { PAYLOAD_VERSION, ENCRYPTED_FIELDS, verifyRoundTrip, deriveKek, wrapDek } from '../lib/crypto'
+import { setupEncryption, unlockWithRecoveryCode, unlockWithPassword, storeDek, clearDek } from '../lib/keyManager'
 
 // EncryptionSettings -- the enable / status / recover surface for Phase E envelope
 // encryption. The old system had no UI at all: it silently auto-enabled on signup
@@ -26,13 +26,12 @@ import { setupEncryption, unlockWithRecoveryCode, storeDek } from '../lib/keyMan
 // a KEK that login can never reproduce (that was a permanent-lockout bug).
 //
 // Flows covered: status display -> enable (verify account password via login,
-// then wrap the DEK under it + one-time recovery codes), and "forgot password"
-// -> unlock with a recovery code to regain access to encrypted data in this
-// browser for the session. There is no account-password-change endpoint yet, so
-// this component does NOT let a recovery "complete" by rewrapping the DEK under
-// some other secret -- that would wrap it under something login can never
-// reproduce and permanently break the next login. It stops with an honest
-// message instead of faking success.
+// then wrap the DEK under it + one-time recovery codes); "forgot password" ->
+// unlock with a recovery code to regain access to encrypted data in this browser
+// for the session only (it does NOT change the account password -- that flow is
+// unauthenticated and deferred); and Change password, for a logged-in user who
+// knows their current password, which re-wraps the DEK under the new password's
+// KEK (recovery slots unchanged) and calls POST /api/auth/change-password.
 
 const FIELD_LABELS = {
   merchant: 'merchant names', description: 'transaction descriptions', category: 'categories',
@@ -48,7 +47,7 @@ function fieldsText(fields) {
 }
 
 export default function EncryptionSettings({ t, onClose, API_BASE, authToken, authHeaders, authUser, setAuthUser, onSessionExpired, Sphere }) {
-  const [view, setView] = useState('status') // status | enable | codes | recoverCode | recovered
+  const [view, setView] = useState('status') // status | enable | codes | recoverCode | recovered | changePassword
   const [me, setMe] = useState(authUser || null)
   const [statusLoading, setStatusLoading] = useState(false)
   const [statusError, setStatusError] = useState(null)
@@ -65,6 +64,12 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('')
   const [recoverLoading, setRecoverLoading] = useState(false)
   const [recoverError, setRecoverError] = useState(null)
+
+  const [cpCurrent, setCpCurrent] = useState('')
+  const [cpNew, setCpNew] = useState('')
+  const [cpConfirm, setCpConfirm] = useState('')
+  const [cpLoading, setCpLoading] = useState(false)
+  const [cpError, setCpError] = useState(null)
 
   const fetchStatus = async () => {
     if (!authToken) return
@@ -119,27 +124,37 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
       const ok = await verifyRoundTrip(setup.dek, sample)
       if (!ok) throw new Error("Encryption self-test failed in this browser -- refusing to enable. Try a different browser, or contact support.")
 
+      // Hold the codes in state and cache the DEK in this browser BEFORE telling the
+      // server anything. If the POST below fails or throws, the account was never
+      // marked enabled server-side, so there is no reachable state where the server
+      // says "enabled" but the codes were never shown -- the codes/dek are simply
+      // discarded in the catch block below instead.
+      setSetupResult(setup)
+      await storeDek(setup.dek)
+
       const envelope = { v: PAYLOAD_VERSION, password: setup.wrappedPassword, recovery: setup.wrappedRecovery }
       const r = await fetch(`${API_BASE}/api/auth/encryption-setup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ encryption_salt: setup.salt, wrapped_dek: envelope }),
       })
-      if (r.status === 401) { if (onSessionExpired) onSessionExpired(); return }
+      if (r.status === 401) { setSetupResult(null); clearDek(); if (onSessionExpired) onSessionExpired(); return }
       if (r.status === 409) throw new Error('Encryption is already enabled for this account.')
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || `HTTP ${r.status}`) }
 
-      await storeDek(setup.dek)
       const wrappedDekStr = JSON.stringify(envelope)
       setMe(prev => ({ ...(prev || {}), encryption_salt: setup.salt, wrapped_dek: wrappedDekStr }))
       if (setAuthUser) setAuthUser(prev => prev ? { ...prev, encryption_salt: setup.salt, wrapped_dek: wrappedDekStr } : prev)
 
-      setSetupResult(setup)
       setCodesSaved(false)
       setCopyStatus('')
       setPassword('')
       setView('codes')
     } catch (e) {
+      // Server never confirmed "enabled" (or we bailed before finding out) -- discard
+      // the generated codes and session DEK so nothing is left half-set-up.
+      setSetupResult(null)
+      clearDek()
       setEnableError(e.message || 'Could not enable encryption')
     } finally { setEnableLoading(false) }
   }
@@ -201,6 +216,61 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
     } finally { setRecoverLoading(false) }
   }
 
+  const handleChangePassword = async (e) => {
+    e.preventDefault()
+    setCpError(null)
+    if (!cpCurrent) { setCpError('Enter your current password.'); return }
+    if (cpNew.length < 8) { setCpError('New password must be at least 8 characters.'); return }
+    if (cpNew !== cpConfirm) { setCpError('New password and confirmation do not match.'); return }
+    setCpLoading(true)
+    try {
+      const body = { current_password: cpCurrent, new_password: cpNew }
+      let newDek = null
+
+      if (enabled) {
+        if (!me.encryption_salt || !me.wrapped_dek) throw new Error('Encryption status looks inconsistent -- reload the page and try again.')
+        let envelope
+        try { envelope = typeof me.wrapped_dek === 'string' ? JSON.parse(me.wrapped_dek) : me.wrapped_dek }
+        catch { throw new Error("This account's stored encryption data looks corrupted and could not be read.") }
+
+        let dek
+        try { dek = await unlockWithPassword(cpCurrent, me.encryption_salt, envelope.password) }
+        catch { throw new Error('Current password is incorrect.') }
+        newDek = dek
+
+        // Same DEK, same salt -- only re-wrap the password slot under the new KEK.
+        // Recovery slots are unchanged; copy them verbatim from the existing envelope.
+        const newKek = await deriveKek(cpNew, me.encryption_salt)
+        const newWrappedPassword = await wrapDek(newKek, dek)
+        body.wrapped_dek = { v: PAYLOAD_VERSION, password: newWrappedPassword, recovery: envelope.recovery }
+      }
+
+      const r = await fetch(`${API_BASE}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body),
+      })
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || (r.status === 401 ? 'Current password is incorrect.' : `HTTP ${r.status}`)) }
+
+      if (newDek) await storeDek(newDek) // DEK itself is unchanged -- just re-cache it
+      if (body.wrapped_dek) {
+        // Keep the cached envelope in sync with what the server just committed --
+        // otherwise a second Change password in this same panel open unwraps against
+        // the STALE envelope (still wrapped under the OLD password) and fails
+        // client-side even though the new password is correct. Mirrors handleEnable.
+        const wrappedDekStr = JSON.stringify(body.wrapped_dek)
+        setMe(prev => ({ ...(prev || {}), wrapped_dek: wrappedDekStr }))
+        if (setAuthUser) setAuthUser(prev => prev ? { ...prev, wrapped_dek: wrappedDekStr } : prev)
+      }
+      setCpCurrent(''); setCpNew(''); setCpConfirm('')
+      setView('status')
+      setBanner('Password changed.')
+      setTimeout(() => setBanner(null), 5000)
+    } catch (e) {
+      setCpError(e.message || 'Could not change password')
+    } finally { setCpLoading(false) }
+  }
+
   const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '15px', outline: 'none', marginBottom: '12px', boxSizing: 'border-box' }
   const primaryBtn = (disabled) => ({ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40` })
   const secondaryBtn = { flex: 1, padding: '12px', borderRadius: '12px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '14px', fontWeight: 500 }
@@ -208,7 +278,7 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
   const heading = { fontSize: '20px', fontWeight: 700, color: t.text, margin: '0 0 4px' }
   const subtext = { fontSize: '13px', color: t.textLight, margin: '0 0 20px', lineHeight: 1.5, textAlign: 'left' }
 
-  const canDismiss = view !== 'codes'
+  const canDismiss = view !== 'codes' && !enableLoading
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (canDismiss && e.target === e.currentTarget && onClose) onClose() }}>
@@ -254,6 +324,9 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
                 )}
               </>
             )}
+            <button onClick={() => { setCpError(null); setCpCurrent(''); setCpNew(''); setCpConfirm(''); setView('changePassword') }} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '13px', fontWeight: 500, marginBottom: '10px' }}>
+              Change password
+            </button>
             <button onClick={onClose} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: `1px solid ${t.border}`, cursor: 'pointer', background: 'transparent', color: t.textLight, fontSize: '14px', fontWeight: 500 }}>Close</button>
           </>
         )}
@@ -265,6 +338,9 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
               Your {encryptedText} are encrypted in your browser -- we can never read them.
               Your {readableText} stay readable so your charts and Coach keep working.
             </p>
+            <div style={{ fontSize: '12px', color: t.sand, background: `${t.sand}15`, borderRadius: '10px', padding: '10px 12px', marginBottom: '16px', textAlign: 'left', lineHeight: 1.4 }}>
+              This does not encrypt transactions you already imported -- only new imports, from the moment you enable this, are encrypted.
+            </div>
             <p style={subtext}>Re-enter your account password below (the one you log in with). We verify it first, then use it in this browser to generate your encryption key -- the key itself never leaves your browser.</p>
             {enableError && <div style={errorBox}>{enableError}</div>}
             <input type="password" placeholder="Your account password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} autoFocus />
@@ -318,6 +394,21 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
           </form>
         )}
 
+        {view === 'changePassword' && (
+          <form onSubmit={handleChangePassword}>
+            <h2 style={heading}>Change password</h2>
+            <p style={subtext}>Enter your current password and choose a new one (at least 8 characters).</p>
+            {cpError && <div style={errorBox}>{cpError}</div>}
+            <input type="password" placeholder="Current password" value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} style={inputStyle} autoFocus />
+            <input type="password" placeholder="New password" value={cpNew} onChange={e => setCpNew(e.target.value)} style={inputStyle} />
+            <input type="password" placeholder="Confirm new password" value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} style={inputStyle} />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="button" onClick={() => setView('status')} style={secondaryBtn} disabled={cpLoading}>Cancel</button>
+              <button type="submit" style={primaryBtn(cpLoading)} disabled={cpLoading}>{cpLoading ? 'Changing...' : 'Change password'}</button>
+            </div>
+          </form>
+        )}
+
         {view === 'recovered' && (
           <>
             <h2 style={heading}>Data unlocked</h2>
@@ -325,9 +416,8 @@ export default function EncryptionSettings({ t, onClose, API_BASE, authToken, au
               That recovery code worked -- your encrypted data is unlocked in this browser for this session.
             </p>
             <div style={{ fontSize: '12px', color: t.sand, background: `${t.sand}15`, borderRadius: '10px', padding: '10px 12px', marginBottom: '16px', textAlign: 'left', lineHeight: 1.4 }}>
-              This build cannot change your account password yet, so recovery stops here instead of quietly
-              breaking your next login. Your account password is unchanged -- if you still don't know it, you
-              can unlock again next time with any of your other recovery codes.
+              This unlocks your data for this session only -- it does not change your account password.
+              To set a new password, log in and use Change password.
             </div>
             <button onClick={() => { setView('status'); setBanner('Your data is unlocked in this browser for this session.'); setTimeout(() => setBanner(null), 5000) }} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, color: 'white', fontSize: '14px', fontWeight: 600, boxShadow: `0 4px 16px ${t.tealDark}40` }}>
               Done

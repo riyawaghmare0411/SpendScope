@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 // Phase 11C: optional "apply to all matching merchants" + persist learned rule to backend.
 
 export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES, onClose, onSave, allTransactions, API_BASE, authHeaders }) {
+  const isEncrypted = Boolean(txn.encrypted_data)
   const [direction, setDirection] = useState(txn.direction || 'OUT')
   const [category, setCategory] = useState(txn.category || 'Other')
   const [merchant, setMerchant] = useState(txn.merchant || '')
@@ -31,7 +32,7 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
 
   const handleSave = async () => {
     setError('')
-    if (!merchant.trim()) { setError('Merchant cannot be empty'); return }
+    if (!isEncrypted && !merchant.trim()) { setError('Merchant cannot be empty'); return }
     if (isNaN(amountNum) || amountNum <= 0) { setError('Amount must be a positive number'); return }
     setSaving(true)
     try {
@@ -39,7 +40,7 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
       if (category !== txn.category) changes.category = category
       if (direction !== txn.direction) changes.direction = direction
       if (amountChanged) changes.amount = amountNum
-      if (merchant.trim() !== (txn.merchant || '').trim()) changes.merchant = merchant.trim()
+      if (!isEncrypted && merchant.trim() !== (txn.merchant || '').trim()) changes.merchant = merchant.trim()
       if (Object.keys(changes).length === 0) { onClose(); return }
 
       // Always patch the primary row
@@ -82,11 +83,15 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
           }),
         })
         if (!ruleRes.ok) {
-          // No session-expired callback is wired to this component (it only receives
-          // authHeaders, not onSessionExpired) -- surface a plain but explicit error instead.
-          throw new Error(ruleRes.status === 401
-            ? 'Session expired -- rule was not saved. Please log in again.'
-            : `Rule not saved (HTTP ${ruleRes.status}) -- future imports won't auto-categorize this merchant.`)
+          // The primary transaction PATCH above already succeeded -- leaving the dialog
+          // open here just invites a retry that re-saves the same row for nothing. Close
+          // it like a normal success, but surface a loud (blocking) warning that the rule
+          // specifically was not saved, instead of failing silently.
+          window.alert(ruleRes.status === 401
+            ? 'Session expired -- the auto-categorize rule was NOT saved. Future imports for this merchant will not auto-categorize. Please log in again.'
+            : `The auto-categorize rule was NOT saved (HTTP ${ruleRes.status}) -- future imports won't auto-categorize this merchant.`)
+          onSave({ changes, applyAll, matchingIds: ids })
+          return
         }
       }
 
@@ -150,8 +155,13 @@ export default function EditTransactionModal({ t, currency, txn, ALL_CATEGORIES,
 
         {/* Merchant rename */}
         <p style={{ fontSize: '11px', fontWeight: 700, color: t.textMuted, margin: '0 0 6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Merchant</p>
-        <input value={merchant} onChange={e => setMerchant(e.target.value)} placeholder="Merchant name"
-          style={{ width: '100%', padding: '10px 12px', borderRadius: '12px', border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '13px', outline: 'none', marginBottom: '14px', boxSizing: 'border-box' }} />
+        {isEncrypted && (
+          <p style={{ fontSize: '11px', color: t.textMuted, margin: '0 0 6px', lineHeight: 1.4 }}>
+            Encrypted -- re-encryption from the edit dialog is coming; category, amount and direction can still be edited.
+          </p>
+        )}
+        <input value={merchant} onChange={e => setMerchant(e.target.value)} placeholder="Merchant name" disabled={isEncrypted}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: '12px', border: `1px solid ${t.border}`, background: isEncrypted ? t.border : t.bg, color: isEncrypted ? t.textMuted : t.text, fontSize: '13px', outline: 'none', marginBottom: '14px', boxSizing: 'border-box', opacity: isEncrypted ? 0.6 : 1, cursor: isEncrypted ? 'not-allowed' : 'text' }} />
 
         {/* Amount */}
         <p style={{ fontSize: '11px', fontWeight: 700, color: t.textMuted, margin: '0 0 6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Amount ({currency})</p>

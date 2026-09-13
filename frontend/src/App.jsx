@@ -56,13 +56,17 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false)
   const [encryptionKey, setEncryptionKey] = useState(null)
   const [decryptError, setDecryptError] = useState(null)
+  // E-9: separate from decryptError (which refreshTransactions overwrites on every call --
+  // see below) so a login-unlock failure stays visible instead of being wiped the moment
+  // the post-login refreshTransactions() effect runs.
+  const [unlockError, setUnlockError] = useState(null)
   const fileInputRef = useRef(null), welcomeInputRef = useRef(null), profileInputRef = useRef(null)
   const t = themes[mode]
 
   const authHeaders = () => authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
 
   const handleLogin = async (email, password) => {
-    setAuthLoading(true); setAuthError(''); setDecryptError(null)
+    setAuthLoading(true); setAuthError(''); setDecryptError(null); setUnlockError(null)
     try {
       const r = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -74,7 +78,7 @@ function App() {
       // that would lock the user out of their entire account over a key problem. Instead
       // login proceeds and the failure surfaces as a loud, persistent decryptError banner.
       let dek = null
-      let unlockError = null
+      let unlockErrMsg = null
       if (data.user.encryption_salt && data.user.wrapped_dek) {
         try {
           const envelope = typeof data.user.wrapped_dek === 'string' ? JSON.parse(data.user.wrapped_dek) : data.user.wrapped_dek
@@ -84,7 +88,7 @@ function App() {
           dek = await unlockWithPassword(password, data.user.encryption_salt, envelope.password)
           await storeDek(dek)
         } catch (e) {
-          unlockError = `Could not unlock your encrypted data: ${e.message || 'invalid password or corrupted key data'}. Your data is safe -- log out and back in, or recover with a code from Encryption settings, to unlock it.`
+          unlockErrMsg = `Could not unlock your encrypted data: ${e.message || 'invalid password or corrupted key data'}. Your data is safe -- log out and back in, or recover with a code from Encryption settings, to unlock it.`
         }
       }
       localStorage.setItem('spendscope_token', data.access_token)
@@ -94,7 +98,7 @@ function App() {
       setUserName(data.user.name)
       setCurrency(data.user.currency === 'USD' ? '$' : data.user.currency === 'GBP' ? '\u00A3' : data.user.currency === 'EUR' ? '\u20AC' : data.user.currency === 'INR' ? '\u20B9' : '$')
       if (dek) setEncryptionKey(dek)
-      if (unlockError) setDecryptError(unlockError)
+      if (unlockErrMsg) setUnlockError(unlockErrMsg)
     } catch (e) { setAuthError(e.message) }
     finally { setAuthLoading(false) }
   }
@@ -125,6 +129,7 @@ function App() {
     clearDek()
     setEncryptionKey(null)
     setDecryptError(null)
+    setUnlockError(null)
     setAuthToken(null)
     setAuthUser(null)
     setData([])
@@ -462,7 +467,6 @@ function App() {
       }
       const importTag = imp.id
       const taggedData = kept.map(d => ({ ...d, _account: acctName, _importId: importTag }))
-      setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
       if (!accounts.find(a => a.name === acctName)) {
         setAccounts(prev => [...prev, { id: `${imp.id}-acct`, name: acctName }])
       }
@@ -476,7 +480,21 @@ function App() {
             if (!verified) throw new Error('round-trip verification failed')
             const encryptedTxns = []
             for (const txn of kept) {
-              const blob = await encryptFields(encryptionKey, txn)
+              // E-15: canonical view fed to encryptFields (not txn directly), so a future
+              // ENCRYPTED_FIELDS widening to include 'amount' (Option C) encrypts a real
+              // value. Rows from the server parsers (csv_parser.py, pdf_parser.py,
+              // plaid_service.py) already carry an unsigned `amount` -- only rows from the
+              // client Papa-parse fallback (no server route matched) lack one and need it
+              // synthesized here, unsigned and matching direction (money_in for IN,
+              // money_out for OUT), same convention as TxnModel.amount and api.py's
+              // transaction import/list endpoints. direction falls back the same way
+              // localCategorize's directionOf does, for rows that never got a direction key.
+              // Inert today: ENCRYPTED_FIELDS is merchant/description only, so this extra
+              // key is never read by encryptFields and plainCopy below is still built from
+              // the original txn, so the plaintext payload sent to the server is unchanged.
+              const dir = txn.direction || (Number(txn.money_in) > 0 ? 'IN' : 'OUT')
+              const canonical = { ...txn, amount: txn.amount ?? (dir === 'IN' ? Number(txn.money_in) : Number(txn.money_out)) }
+              const blob = await encryptFields(encryptionKey, canonical)
               const plainCopy = { ...txn }
               for (const f of ENCRYPTED_FIELDS) delete plainCopy[f]
               encryptedTxns.push({ ...plainCopy, encrypted_data: blob })
@@ -493,11 +511,18 @@ function App() {
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify(importPayload),
           })
-          if (!r.ok) errors.push(`${imp.filename}: HTTP ${r.status}`)
-          else totalImported += kept.length
+          if (!r.ok) { errors.push(`${imp.filename}: HTTP ${r.status}`) }
+          else {
+            totalImported += kept.length
+            // E-10: only reflect this import in local state once the server has confirmed
+            // it -- otherwise a later network failure on a different file leaves rows on
+            // screen the server never received, until the next refresh silently drops them.
+            setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
+          }
         } catch (e) { errors.push(`${imp.filename}: ${e.message}`) }
       } else {
         totalImported += kept.length
+        setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
       }
     }
     if (authToken) await refreshAccounts()
@@ -781,6 +806,12 @@ function App() {
               {authUser?.wrapped_dek ? 'Encryption: ON' : 'Enable Encryption'}
             </button>
           </div>
+
+          {unlockError && (
+            <div style={{ ...lc, marginBottom: '20px', padding: '16px 24px', border: `1px solid ${t.red}40`, background: `${t.red}10` }}>
+              <p style={{ fontSize: '14px', color: t.text, margin: 0, fontWeight: 500 }}>{unlockError}</p>
+            </div>
+          )}
 
           {decryptError && (
             <div style={{ ...lc, marginBottom: '20px', padding: '16px 24px', border: `1px solid ${t.red}40`, background: `${t.red}10` }}>

@@ -1,7 +1,7 @@
 import { PlaidConnect } from './PlaidConnect'
 import { AccountsListPanel } from './AccountsListPanel'
 
-export default function UploadPage({ t, currency, uploadStatus, setUploadStatus, pendingImports, pendingImport, showColumnMapper, setShowColumnMapper, columnMapping, setColumnMapping, columnDateFormat, setColumnDateFormat, mapperBankName, setMapperBankName, mapperSaveTemplate, setMapperSaveTemplate, uploadAccountName, setUploadAccountName, handleConfirmImport, handleColumnMapperSubmit, handleCancelImport, handleFileUpload, dragOver, setDragOver, fileInputRef, authToken, authHeaders, API_BASE, ALL_CATEGORIES, CAT_COLORS, fmt, lc, setPage, toggleImportRow, toggleAllImportRows, deleteSelectedImportRows, updatePendingTransaction, setImportEditingCell, updatePendingImportField, removePendingImport, refreshTransactions, refreshAccounts, accounts, setActiveAccount, handleLogout }) {
+export default function UploadPage({ t, currency, uploadStatus, setUploadStatus, pendingImports, pendingImport, showColumnMapper, setShowColumnMapper, columnMapping, setColumnMapping, columnDateFormat, setColumnDateFormat, mapperBankName, setMapperBankName, mapperSaveTemplate, setMapperSaveTemplate, uploadAccountName, setUploadAccountName, handleConfirmImport, handleColumnMapperSubmit, handleCancelImport, handleFileUpload, dragOver, setDragOver, fileInputRef, authToken, authHeaders, API_BASE, ALL_CATEGORIES, CAT_COLORS, fmt, lc, Sphere, setPage, toggleImportRow, toggleAllImportRows, deleteSelectedImportRows, updatePendingTransaction, setImportEditingCell, updatePendingImportField, removePendingImport, refreshTransactions, refreshAccounts, accounts, setActiveAccount, handleLogout }) {
   const onPlaidSync = () => { refreshTransactions && refreshTransactions(); refreshAccounts && refreshAccounts() }
   return (<>
 
@@ -106,6 +106,16 @@ export default function UploadPage({ t, currency, uploadStatus, setUploadStatus,
         </div>
       </div>
 
+      {/* A-1: error-type uploadStatus (e.g. session expired, multi-file batch failure) must
+          render here too -- the pending-review view has no exit path back to the default
+          upload view (see gate below), so it was previously invisible for a failed categorize. */}
+      {uploadStatus && uploadStatus.type === 'error' && (
+        <div style={{ ...lc, marginBottom: '16px', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${t.red}20`, background: `${t.red}08` }}>
+          <span style={{ fontSize: '20px' }}>{'\u274C'}</span>
+          <p style={{ fontSize: '14px', color: t.text, margin: 0, fontWeight: 500 }}>{uploadStatus.message}</p>
+        </div>
+      )}
+
       {/* One section per file */}
       {pendingImports.map((imp, impIdx) => {
         const total = imp.transactions.length
@@ -145,6 +155,16 @@ export default function UploadPage({ t, currency, uploadStatus, setUploadStatus,
                 )}
               </div>
             </div>
+
+            {/* A-1: per-import error (e.g. categorize-local 401/500) -- imp.error was set by
+                buildPendingEntry in App.jsx but was never rendered anywhere, so a failed
+                categorize silently landed every "Other" merchant with no explanation. */}
+            {imp.error && (
+              <div style={{ marginBottom: '10px', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${t.red}30`, background: `${t.red}08`, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '14px' }}>{'\u274C'}</span>
+                <p style={{ fontSize: '12px', color: t.text, margin: 0, fontWeight: 500 }}>{imp.error}</p>
+              </div>
+            )}
 
             {/* Per-file bulk action row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px', padding: '6px 10px', borderRadius: '8px', background: t.bg }}>
@@ -282,7 +302,7 @@ export default function UploadPage({ t, currency, uploadStatus, setUploadStatus,
       <input ref={fileInputRef} type="file" accept=".csv,.pdf" multiple style={{ display: 'none' }} onChange={e => { const files = Array.from(e.target.files || []); if (files.length) handleFileUpload(files); e.target.value = '' }} />
       <div style={{ ...lc, padding: '60px 40px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s', border: dragOver ? `2px dashed ${t.teal}` : `2px dashed ${t.textMuted}40`, background: dragOver ? `${t.teal}08` : t.card }}
         onDragOver={e => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const files = Array.from(e.dataTransfer.files || []); if (files.length) handleFileUpload(files) }} onClick={() => fileInputRef.current?.click()}>
-        <Sphere size="80px" color={t.teal} top="20px" right="40px" opacity={0.2} /><Sphere size="50px" color={t.sand} bottom="20px" left="60px" opacity={0.15} />
+        {Sphere && <Sphere size="80px" color={t.teal} top="20px" right="40px" opacity={0.2} />}{Sphere && <Sphere size="50px" color={t.sand} bottom="20px" left="60px" opacity={0.15} />}
         {uploadStatus?.type === 'loading' ? (<div style={{ position: 'relative', zIndex: 1 }}><div style={{ width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${t.border}`, borderTopColor: t.tealDark, animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} /><p style={{ fontSize: '16px', fontWeight: 600, color: t.text }}>{uploadStatus.message}</p><style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style></div>) : (<>
           <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.6, position: 'relative', zIndex: 1 }}>{'\uD83D\uDCC4'}</div>
           <h2 style={{ fontSize: '20px', fontWeight: 600, color: t.text, margin: '0 0 8px', position: 'relative', zIndex: 1 }}>Drop your bank statement(s) here</h2>

@@ -80,7 +80,14 @@ async function main() {
     const result = await dispatch(req);
     process.stdout.write(JSON.stringify({ ok: true, result }));
   } catch (e) {
-    process.stdout.write(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+    const message = String((e && e.message) || e);
+    if (message.startsWith('unknown action: ')) {
+      // A typo'd action name is a harness bug, not an expected crypto failure --
+      // must fail loudly (non-zero exit) so it can never pass as a negative test.
+      console.error(message);
+      process.exit(1);
+    }
+    process.stdout.write(JSON.stringify({ ok: false, error: message }));
   }
 }
 

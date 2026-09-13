@@ -89,6 +89,9 @@ jobs:
       - name: Run tests/test_encryption.py
         run: python tests/test_encryption.py
 
+      - name: Run tests/test_rules_isolation.py
+        run: python tests/test_rules_isolation.py
+
       - name: Dump app.log on failure
         if: failure()
         run: '[ -f app.log ] && cat app.log || echo "app.log not found (app never started)"'

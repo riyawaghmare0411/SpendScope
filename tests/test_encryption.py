@@ -12,6 +12,7 @@ the actual modules and runs them.
 Run: python tests/test_encryption.py
 """
 import asyncio, httpx, time, asyncpg, os, sys, json, subprocess
+import cleanup
 
 BASE = os.environ.get("SPENDSCOPE_API_BASE", "http://127.0.0.1:8000")
 DB_URL = os.environ.get("SPENDSCOPE_DB_URL", "postgresql://spendscope:spendscope_dev@localhost:5432/spendscope")
@@ -30,8 +31,9 @@ def call_js(action, **kwargs):
     """Shell out to js_harness.mjs, which imports and runs frontend/src/lib/crypto.js
     and keyManager.js verbatim under Node's WebCrypto -- the real shipped code,
     not a lookalike. Returns {"ok": True, "result": ...} or {"ok": False, "error": ...}
-    for an *expected* crypto failure (wrong secret, wrong shape). A harness crash
-    (Node missing, bad action, bad JSON) is a hard, loud failure -- never silently
+    for an *expected* crypto failure -- wrong password/recovery code (an AES-GCM
+    auth-tag failure) or a malformed wrapped-blob shape. A harness crash (Node
+    missing, unknown action, bad JSON) is a hard, loud failure -- never silently
     treated as a passed/skipped test.
     """
     try:
@@ -56,10 +58,12 @@ def call_js(action, **kwargs):
 
 async def main():
     failures = 0
-    async with httpx.AsyncClient(timeout=30.0) as c:
+    email = f"enctest+{int(time.time())}@example.com"
+    email2 = None
+    try:
+      async with httpx.AsyncClient(timeout=30.0) as c:
         # 1. Signup (plain -- matches the real UI: encryption is enabled after
         # signup via /api/auth/encryption-setup, not at signup time).
-        email = f"enctest+{int(time.time())}@example.com"
         r = await c.post(f"{BASE}/api/auth/signup", json={
             "email": email, "password": "test1234", "name": "EncTest",
             "country": "GB", "currency": "GBP",
@@ -162,14 +166,18 @@ async def main():
         # bad secret must raise (GCM auth tag failure), never silently return garbage.
         r_wrong_pw = call_js("unlock_password", password="totally-wrong-password",
                               salt=login_user.get("encryption_salt"), wrapped=(server_envelope or {}).get("password"))
-        if not step("wrong password raises on unwrap (GCM auth tag failure, not garbage)",
-                     r_wrong_pw.get("ok") is False):
+        wrong_pw_ok = (r_wrong_pw.get("ok") is False and
+                       r_wrong_pw.get("error") == "The operation failed for an operation-specific reason")
+        if not step("wrong password raises the AES-GCM auth-tag failure on unwrap (not garbage)",
+                     wrong_pw_ok, json.dumps(r_wrong_pw)[:200]):
             failures += 1
 
         r_wrong_code = call_js("unlock_recovery", code="WRONGCODE", salt=login_user.get("encryption_salt"),
                                 wrappedRecoveryArray=(server_envelope or {}).get("recovery"))
-        if not step("wrong recovery code raises on unwrap (GCM auth tag failure, not garbage)",
-                     r_wrong_code.get("ok") is False):
+        wrong_code_ok = r_wrong_code.get("ok") is False and r_wrong_code.get("error") == "Invalid recovery code"
+        if not step("wrong recovery code raises 'Invalid recovery code' after every slot's AES-GCM "
+                     "auth-tag check fails (not garbage)",
+                     wrong_code_ok, json.dumps(r_wrong_code)[:200]):
             failures += 1
 
         # 7. crypto.js's own pre-flight self-test (verifyRoundTrip), the same check
@@ -282,6 +290,10 @@ async def main():
         except Exception as e:
             step("DB-level cross-check", False, f"db error: {e}")
             failures += 1
+    finally:
+        await cleanup.cleanup_test_user(email, DB_URL)
+        if email2:
+            await cleanup.cleanup_test_user(email2, DB_URL)
 
     print()
     print("=" * 60)

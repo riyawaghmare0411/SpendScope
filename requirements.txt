@@ -78,7 +78,7 @@ pandocfilters==1.5.1
 parso==0.8.6
 passlib==1.7.4
 pgvector==0.4.1
-plaid-python==18.4.0
+plaid-python==39.1.0
 platformdirs==4.9.4
 prometheus_client==0.24.1
 prompt_toolkit==3.0.52
@@ -90,7 +90,7 @@ pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 Pygments==2.19.2
-PyJWT==2.10.1
+PyJWT==2.12.1
 PyMuPDF==1.27.2.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2

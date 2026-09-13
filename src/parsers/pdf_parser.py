@@ -48,7 +48,9 @@ def parse_pdf(file_content: bytes) -> dict:
     Takes raw PDF bytes, extracts text via PyMuPDF, detects the bank,
     and parses transactions with the matching template parser.
 
-    Returns dict with bank_name, transactions, raw_text, recognized.
+    Returns dict with bank_name, transactions, raw_text, recognized,
+    reason (one of: parsed, parsed_empty, no_parser, scanned, unknown_bank,
+    open_error), detected_bank, dropped_rows, warnings.
     """
     try:
         doc = fitz.open(stream=file_content, filetype="pdf")
@@ -61,6 +63,8 @@ def parse_pdf(file_content: bytes) -> dict:
             "error": f"Could not open PDF: {e}",
             "reason": "open_error",
             "detected_bank": None,
+            "dropped_rows": 0,
+            "warnings": [],
         }
 
     full_text = ""
@@ -81,6 +85,8 @@ def parse_pdf(file_content: bytes) -> dict:
             "recognized": False,
             "reason": "scanned",
             "detected_bank": None,
+            "dropped_rows": 0,
+            "warnings": [],
         }
 
     bank = detect_bank_pdf(full_text)
@@ -93,15 +99,17 @@ def parse_pdf(file_content: bytes) -> dict:
 
     parser_fn = parser_map.get(bank)
     if parser_fn:
-        transactions = parser_fn(all_lines)
+        transactions, dropped_rows, warnings = parser_fn(all_lines)
         transactions.sort(key=lambda t: t["date_iso"])
         return {
             "bank_name": bank,
             "transactions": transactions,
             "raw_text": full_text,
             "recognized": True,
-            "reason": "parsed",
+            "reason": "parsed" if transactions else "parsed_empty",
             "detected_bank": bank,
+            "dropped_rows": dropped_rows,
+            "warnings": warnings,
         }
 
     if bank != "Unknown":
@@ -113,6 +121,8 @@ def parse_pdf(file_content: bytes) -> dict:
             "recognized": False,
             "reason": "no_parser",
             "detected_bank": bank,
+            "dropped_rows": 0,
+            "warnings": [],
         }
 
     return {
@@ -122,6 +132,8 @@ def parse_pdf(file_content: bytes) -> dict:
         "recognized": False,
         "reason": "unknown_bank",
         "detected_bank": None,
+        "dropped_rows": 0,
+        "warnings": [],
     }
 
 
@@ -129,7 +141,7 @@ def parse_pdf(file_content: bytes) -> dict:
 # Lloyds parser  (ported from api.py state-machine logic)
 # ---------------------------------------------------------------------------
 
-def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
+def parse_lloyds_pdf(text_lines: list[str]) -> tuple[list[dict], int, list[str]]:
     """Parse Lloyds bank statement text lines into transactions.
 
     PyMuPDF extracts Lloyds PDFs as labeled multi-line fields:
@@ -147,8 +159,14 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
         31.66.
 
     This parser reads those labels as a state machine.
+
+    Returns (transactions, dropped_rows, warnings). A row is dropped (and
+    logged in warnings, never with the raw line text) when its date or
+    amount can't be parsed, instead of silently defaulting to a zero amount.
     """
     transactions: list[dict] = []
+    dropped = 0
+    warnings: list[str] = []
     i = 0
     while i < len(text_lines):
         line = text_lines[i].strip()
@@ -160,6 +178,8 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
                 dt = datetime.strptime(date_val, "%d %b %y")
                 date_iso = dt.strftime("%Y-%m-%d")
             except ValueError:
+                dropped += 1
+                warnings.append(f"line {i + 1}: unparseable date, row skipped")
                 i += 1
                 continue
 
@@ -168,6 +188,7 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
             money_in = 0.0
             money_out = 0.0
             balance = 0.0
+            amt_parse_failed = False
 
             j = i + 2
             while j < len(text_lines) and j < i + 20:
@@ -190,6 +211,7 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
                             money_in = float(val.replace(",", ""))
                         except ValueError:
                             money_in = 0.0
+                            amt_parse_failed = True
                     j += 2
                     continue
                 elif field.startswith("Money Out") and j + 1 < len(text_lines):
@@ -199,6 +221,7 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
                             money_out = float(val.replace(",", ""))
                         except ValueError:
                             money_out = 0.0
+                            amt_parse_failed = True
                     j += 2
                     continue
                 elif field.startswith("Balance") and j + 1 < len(text_lines):
@@ -217,7 +240,10 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
             direction = "IN" if money_in > 0 and money_out == 0 else "OUT"
             amount = money_in if direction == "IN" else money_out
 
-            if money_in > 0 or money_out > 0:
+            if amt_parse_failed:
+                dropped += 1
+                warnings.append(f"line {i + 1}: unparseable amount, row skipped")
+            elif money_in > 0 or money_out > 0:
                 transactions.append({
                     "date_iso": date_iso,
                     "description": desc,
@@ -236,7 +262,7 @@ def parse_lloyds_pdf(text_lines: list[str]) -> list[dict]:
         else:
             i += 1
 
-    return transactions
+    return transactions, dropped, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -252,11 +278,15 @@ _BOFA_AMT_RE = re.compile(r"^-?[\d,]+-\d{2}$")
 _BOFA_AMT_NORMAL_RE = re.compile(r"^-?\$?[\d,]+\.\d{2}$")
 
 
-def _parse_bofa_amount(raw: str) -> float:
-    """Parse BofA amount string. They use dash as decimal: 300-00 -> 300.00, -182-78 -> -182.78."""
+def _parse_bofa_amount(raw: str) -> float | None:
+    """Parse BofA amount string. They use dash as decimal: 300-00 -> 300.00, -182-78 -> -182.78.
+
+    Returns None if the value can't be parsed (caller must not silently
+    treat that as a zero amount).
+    """
     s = raw.strip().replace("$", "").replace(",", "")
     if not s:
-        return 0.0
+        return None
     # Check if it uses dash-decimal format (last 3 chars are -XX)
     if re.match(r"^-?\d+-\d{2}$", s):
         # Split on the LAST dash which is the decimal separator
@@ -270,10 +300,10 @@ def _parse_bofa_amount(raw: str) -> float:
     try:
         return float(s)
     except ValueError:
-        return 0.0
+        return None
 
 
-def parse_bofa_pdf(text_lines: list[str]) -> list[dict]:
+def parse_bofa_pdf(text_lines: list[str]) -> tuple[list[dict], int, list[str]]:
     """Parse Bank of America PDF statement.
 
     BofA PDFs have sections:
@@ -285,8 +315,14 @@ def parse_bofa_pdf(text_lines: list[str]) -> list[dict]:
       date_line (MM/DD/YY)
       description_line (may span multiple lines)
       amount_line (e.g., 300-00 or -182-78)
+
+    Returns (transactions, dropped_rows, warnings). A row is dropped (and
+    logged in warnings, never with the raw line text) when its date or
+    amount can't be parsed, instead of silently defaulting to a zero amount.
     """
     transactions: list[dict] = []
+    dropped = 0
+    warnings: list[str] = []
     section = None  # current section determines direction
     i = 0
 
@@ -338,6 +374,8 @@ def parse_bofa_pdf(text_lines: list[str]) -> list[dict]:
                 dt = datetime.strptime(date_str, "%m/%d/%y")
                 date_iso = dt.strftime("%Y-%m-%d")
             except ValueError:
+                dropped += 1
+                warnings.append(f"line {i + 1}: unparseable date, row skipped")
                 i += 1
                 continue
 
@@ -346,14 +384,19 @@ def parse_bofa_pdf(text_lines: list[str]) -> list[dict]:
             j = i + 1
             amount = 0.0
             found_amount = False
+            amt_parse_failed = False
 
             while j < len(text_lines) and j < i + 10:
                 next_line = text_lines[j].strip()
 
                 # Check if this line is an amount
                 if _BOFA_AMT_RE.match(next_line) or _BOFA_AMT_NORMAL_RE.match(next_line):
-                    amount = _parse_bofa_amount(next_line)
-                    found_amount = True
+                    parsed_amt = _parse_bofa_amount(next_line)
+                    if parsed_amt is None:
+                        amt_parse_failed = True
+                    else:
+                        amount = parsed_amt
+                        found_amount = True
                     j += 1
                     break
 
@@ -370,7 +413,10 @@ def parse_bofa_pdf(text_lines: list[str]) -> list[dict]:
                     desc_parts.append(next_line)
                 j += 1
 
-            if found_amount and desc_parts:
+            if amt_parse_failed:
+                dropped += 1
+                warnings.append(f"line {i + 1}: unparseable amount, row skipped")
+            elif found_amount and desc_parts:
                 description = " ".join(desc_parts)
                 abs_amount = abs(amount)
                 direction = section
@@ -393,9 +439,12 @@ def parse_bofa_pdf(text_lines: list[str]) -> list[dict]:
                     "direction": direction,
                     "is_redacted": False,
                 })
+            elif desc_parts and not found_amount:
+                dropped += 1
+                warnings.append(f"line {i + 1}: no amount found for transaction, row skipped")
 
             i = j
         else:
             i += 1
 
-    return transactions
+    return transactions, dropped, warnings

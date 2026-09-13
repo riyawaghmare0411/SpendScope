@@ -72,64 +72,6 @@ def _is_txn_redacted(txn: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# PDF-level redaction detection
-# ---------------------------------------------------------------------------
-
-def detect_pdf_redactions(text: str) -> dict:
-    """Check raw PDF text for signs of redaction.
-
-    Looks for:
-    - Fields marked [REDACTED], asterisked, or blanked out
-    - Account numbers partially masked (e.g. ****1234)
-    - Sequences of 'blank' where data is expected
-    - Missing text between known field markers
-
-    Returns {"has_redactions": bool, "redacted_fields": list[str]}.
-    """
-    redacted_fields: list[str] = []
-
-    # Asterisked account numbers or descriptions
-    masked = re.findall(r"\*{3,}\d{0,4}", text)
-    for m in masked:
-        redacted_fields.append(f"Masked value: {m}")
-
-    # Explicit [REDACTED] tags
-    explicit = re.findall(r"\[REDACTED\]", text, re.IGNORECASE)
-    for _ in explicit:
-        redacted_fields.append("Explicit [REDACTED] marker found")
-
-    # 'blank' appearing as a field value (Lloyds PDF style)
-    # Look for label -> 'blank' pattern on adjacent lines
-    lines = text.split("\n")
-    field_labels = {"Description", "Type", "Money In", "Money Out", "Balance",
-                    "Date", "Amount", "Reference", "Details"}
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped in field_labels and i + 1 < len(lines):
-            next_val = lines[i + 1].strip().rstrip(".")
-            if next_val.lower() == "blank" or next_val == "":
-                redacted_fields.append(f"Blank field: {stripped}")
-
-    # Rows of X's or hashes in the text
-    xblocks = re.findall(r"[Xx]{4,}|#{4,}", text)
-    for xb in xblocks:
-        redacted_fields.append(f"Redaction pattern: {xb}")
-
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique: list[str] = []
-    for f in redacted_fields:
-        if f not in seen:
-            seen.add(f)
-            unique.append(f)
-
-    return {
-        "has_redactions": len(unique) > 0,
-        "redacted_fields": unique,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Flag transactions
 # ---------------------------------------------------------------------------
 

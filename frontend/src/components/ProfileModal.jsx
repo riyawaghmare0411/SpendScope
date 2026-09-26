@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export default function ProfileModal({ t, authUser, setShowProfile, profileInputRef, authToken, authHeaders, API_BASE, userName, setUserName, handleLogout, onWipeData }) {
+export default function ProfileModal({ t, authUser, setShowProfile, profileInputRef, authToken, authHeaders, API_BASE, userName, setUserName, handleLogout, onWipeData, Sphere }) {
   const [wipeStep, setWipeStep] = useState(0) // 0=hidden, 1=type-confirm, 2=in-progress
   const [wipeText, setWipeText] = useState('')
   const [wipeError, setWipeError] = useState('')
@@ -29,7 +29,7 @@ export default function ProfileModal({ t, authUser, setShowProfile, profileInput
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setShowProfile(false) }}>
       <div style={{ background: t.card, borderRadius: '24px', padding: '40px', maxWidth: '400px', width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center', position: 'relative' }}>
-        <Sphere size="60px" color={t.teal} top="-15px" right="-15px" opacity={0.3} />
+        {Sphere && <Sphere size="60px" color={t.teal} top="-15px" right="-15px" opacity={0.3} />}
         <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: `linear-gradient(135deg, ${t.tealDark}, ${t.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '20px', margin: '0 auto 20px', boxShadow: `0 6px 20px ${t.tealDark}50` }}>{(userName || 'H')[0].toUpperCase()}</div>
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>Profile Settings</h2>
         <p style={{ fontSize: '13px', color: t.textLight, margin: '0 0 20px' }}>{authUser?.email || 'Update your profile'}</p>

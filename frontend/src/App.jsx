@@ -133,6 +133,10 @@ function App() {
     setAuthToken(null)
     setAuthUser(null)
     setData([])
+    // Fix round: a batch that partially failed (e.g. token expired mid-loop, HTTP 401)
+    // must not survive logout/login -- otherwise "Import all" after re-login re-POSTs
+    // the files that had already succeeded before the 401 (see handleConfirmImport).
+    setPendingImports([])
   }
 
   // Phase 10A: clear local state after a server-side wipe.
@@ -194,6 +198,11 @@ function App() {
   // cached in sessionStorage (storeDek persists across refresh, only tab-close clears it).
   // Rehydrate it here so a refresh doesn't silently look "unlocked" while actually locked.
   useEffect(() => { if (!authToken || encryptionKey) return; getDek().then(dek => { if (dek) setEncryptionKey(dek) }) }, [authToken, encryptionKey])
+  // E-9: unlockError is only ever set inside handleLogin on a failed unlock, but the DEK can
+  // become available later without going through handleLogin/handleLogout -- a successful
+  // recovery-code unlock via EncryptionSettings, or the rehydrate effect above finding a
+  // cached DEK. Clear the stale banner the moment encryptionKey actually becomes non-null.
+  useEffect(() => { if (encryptionKey) setUnlockError(null) }, [encryptionKey])
   // Blocker 4b: authUser was persisted to localStorage ONLY in handleLogin/handleSignup, but
   // setAuthUser is also called by EncryptionSettings (on enable) and ProfileModal. Without this,
   // enabling encryption updated React state only -- a second tab (or a browser restart) rebuilt
@@ -341,7 +350,7 @@ function App() {
         })
         .then(result => {
           if (!result) return
-          if (result.status === 'unrecognized') { setUploadStatus({ type: 'error', message: `${file.name}: could not recognize this PDF format.` }); return }
+          if (result.status === 'unrecognized') { setUploadStatus({ type: 'error', message: result.message ? `${file.name}: ${result.message}` : `${file.name}: could not recognize this PDF format.` }); return }
           const transactions = Array.isArray(result.transactions) ? result.transactions : []
           if (transactions.length === 0) { setUploadStatus({ type: 'error', message: `${file.name}: no transactions found.` }); return }
           const tagged = transactions.map(d => ({ ...d, category: d.category || categorizeWithRules(d.merchant || d.description || '') }))
@@ -450,6 +459,11 @@ function App() {
     if (!pendingImports.length) return
     let totalImported = 0
     const errors = []
+    // Fix round: track which entries actually landed on the server (or, when logged out,
+    // were applied locally) so a partial failure only leaves the FAILED files in
+    // pendingImports -- otherwise clicking "Import all" again to retry the failed ones
+    // would also re-POST the ones that already succeeded, and api.py has no dedupe.
+    const succeededIds = new Set()
     // Process each file's import sequentially (so we don't slam the backend with N parallel POSTs)
     for (const imp of pendingImports) {
       const baseLabel = (imp.accountName || '').trim()
@@ -467,9 +481,6 @@ function App() {
       }
       const importTag = imp.id
       const taggedData = kept.map(d => ({ ...d, _account: acctName, _importId: importTag }))
-      if (!accounts.find(a => a.name === acctName)) {
-        setAccounts(prev => [...prev, { id: `${imp.id}-acct`, name: acctName }])
-      }
       if (authToken) {
         const sourceType = imp.filename?.endsWith('.pdf') ? 'pdf' : 'csv'
         let importPayload = { transactions: kept, bank_name: imp.bankName, filename: imp.filename, account_name: acctName, source_type: sourceType }
@@ -514,25 +525,41 @@ function App() {
           if (!r.ok) { errors.push(`${imp.filename}: HTTP ${r.status}`) }
           else {
             totalImported += kept.length
+            succeededIds.add(imp.id)
             // E-10: only reflect this import in local state once the server has confirmed
             // it -- otherwise a later network failure on a different file leaves rows on
             // screen the server never received, until the next refresh silently drops them.
+            if (!accounts.find(a => a.name === acctName)) {
+              setAccounts(prev => [...prev, { id: `${imp.id}-acct`, name: acctName }])
+            }
             setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
           }
         } catch (e) { errors.push(`${imp.filename}: ${e.message}`) }
       } else {
         totalImported += kept.length
+        succeededIds.add(imp.id)
+        if (!accounts.find(a => a.name === acctName)) {
+          setAccounts(prev => [...prev, { id: `${imp.id}-acct`, name: acctName }])
+        }
         setData(prev => [...prev.filter(d => d._importId !== importTag), ...taggedData])
       }
     }
     if (authToken) await refreshAccounts()
     if (errors.length > 0) {
+      // Drop only the entries that already succeeded -- keeping them would let a retry
+      // ("Import all") re-POST files that already landed, and api.py's import endpoint
+      // creates a fresh ImportBatch + inserts every row with no dedupe, so a retry would
+      // double-insert them. Failed entries stay in pendingImports so the user can retry
+      // just those. We don't navigate away here (no setPage): the default upload view
+      // renders this same uploadStatus error banner too (see UploadPage.jsx), so staying
+      // on the review view doesn't hide the failure -- it just also lets the user retry.
+      setPendingImports(prev => prev.filter(p => !succeededIds.has(p.id)))
       setUploadStatus({ type: 'error', message: `${errors.length} file(s) failed: ${errors.join('; ')}` })
     } else {
       setUploadStatus({ type: 'success', message: `Imported ${totalImported.toLocaleString()} transactions across ${pendingImports.length} file${pendingImports.length !== 1 ? 's' : ''}.` })
+      setPendingImports([])
+      setPage('overview')
     }
-    setPendingImports([])
-    setPage('overview')
   }
 
   const handleCancelImport = () => {

@@ -55,6 +55,41 @@ _PHASE10_ALTERS = [
     "ALTER TABLE category_rules ADD COLUMN IF NOT EXISTS direction VARCHAR(10)",
 ]
 
+# Phase 0 (MoneyMap integration, 2026-09-27): schema for the plan/forecast engine + Plaid
+# correctness fixes. Runs after _PHASE10_ALTERS in the same fail-loud per-statement loop.
+_PHASE0_ALTERS = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(64)",
+    # Bug fix: models.py's old plaid_account_id index=True created a NON-unique index that
+    # collided by name with the intended unique index below, so it silently no-opped -- there
+    # was NO real uniqueness on Plaid account ids. Drop the stale non-unique index, then add the
+    # correctly-scoped one (per-user, partial on non-null).
+    "DROP INDEX IF EXISTS ix_accounts_plaid_account_id",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_user_plaid_account_id ON accounts(user_id, plaid_account_id) WHERE plaid_account_id IS NOT NULL",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS kind VARCHAR(30)",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS counts_as_cash BOOLEAN",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS statement_balance NUMERIC(12,2)",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS minimum_payment NUMERIC(12,2)",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS next_due_date DATE",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS apr_bps INTEGER",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_as_of TIMESTAMPTZ",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS term_months INTEGER",
+    "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_source VARCHAR(20)",
+    "UPDATE accounts SET counts_as_cash = TRUE WHERE counts_as_cash IS NULL AND account_type IN ('checking','savings')",
+    "UPDATE accounts SET counts_as_cash = FALSE WHERE counts_as_cash IS NULL",
+    # mask is dropped from every API response as of Phase 0 (BP-ACCT) -- clear existing values.
+    "UPDATE accounts SET mask = NULL WHERE mask IS NOT NULL",
+    # Disconnecting a Plaid item must keep the account + its transactions, not cascade-delete them.
+    "ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_plaid_item_id_fkey",
+    "ALTER TABLE accounts ADD CONSTRAINT accounts_plaid_item_id_fkey FOREIGN KEY (plaid_item_id) REFERENCES plaid_items(id) ON DELETE SET NULL",
+    "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS plaid_transaction_id VARCHAR(255)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_transactions_user_plaid_transaction_id ON transactions(user_id, plaid_transaction_id) WHERE plaid_transaction_id IS NOT NULL",
+    "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pending BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(10)",
+    "UPDATE transactions t SET currency = a.currency FROM accounts a WHERE t.account_id = a.id AND t.currency IS NULL",
+    "ALTER TABLE budgets ADD COLUMN IF NOT EXISTS currency VARCHAR(10)",
+    "UPDATE budgets b SET currency = u.currency FROM users u WHERE b.user_id = u.id AND b.currency IS NULL",
+]
+
 
 async def init_db():
     # Step 1: vector extension, its own transaction, before create_all needs it.
@@ -71,7 +106,7 @@ async def init_db():
 
     # Step 3: each ALTER/INDEX in its own transaction -- one failure must not silently
     # abort the rest, and any failure must fail boot loudly instead of "booting healthy".
-    for stmt in _PHASE10_ALTERS:
+    for stmt in _PHASE10_ALTERS + _PHASE0_ALTERS:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(stmt))

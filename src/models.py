@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import sqlalchemy as sa
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector  # Phase 12A: 384-dim merchant embeddings
 
 from src.database import Base
+from src import plan_models  # noqa: F401 -- registers PlanSettings/PlanBalance/RecurringRule/BalanceUpdate/PlanEvent with Base.metadata
 
 
 def utcnow() -> datetime:
@@ -24,6 +25,9 @@ class User(Base):
     oauth_id: Mapped[Optional[str]] = mapped_column(sa.String(255))
     country: Mapped[Optional[str]] = mapped_column(sa.String(100))
     currency: Mapped[str] = mapped_column(sa.String(10), default="USD")
+    # Phase 0 (MoneyMap integration): IANA tz name, used for server-side day-boundary math
+    # in the forecast/plan engine. Falls back to a country->tz map when unset (src/timeutil.py).
+    timezone: Mapped[Optional[str]] = mapped_column(sa.String(64), nullable=True)
     encryption_salt: Mapped[Optional[str]] = mapped_column(sa.String(64), nullable=True)
     # DEPRECATED (Phase E): the new envelope scheme stores no recovery codes and no hashes --
     # recovery works by trying to unwrap wrapped_dek, where a valid GCM auth tag IS the proof.
@@ -56,9 +60,12 @@ class Account(Base):
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
     # Phase 10B: per-card metadata (NULL for non-Plaid accounts).
-    # plaid_account_id has a partial unique index added in database.py so multiple NULLs are allowed.
-    plaid_account_id: Mapped[Optional[str]] = mapped_column(sa.String(255), index=True, nullable=True)
-    plaid_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(sa.ForeignKey("plaid_items.id", ondelete="CASCADE"), nullable=True, index=True)
+    # plaid_account_id's uniqueness is enforced by the partial unique index added in database.py
+    # (ux_accounts_user_plaid_account_id) -- no index=True here, that was a same-name collision
+    # that left the column with NO real uniqueness enforcement (Phase 0 bug fix).
+    plaid_account_id: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    # Disconnecting a Plaid item keeps the account + its transactions (SET NULL, not CASCADE).
+    plaid_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(sa.ForeignKey("plaid_items.id", ondelete="SET NULL"), nullable=True, index=True)
     mask: Mapped[Optional[str]] = mapped_column(sa.String(10))
     subtype: Mapped[Optional[str]] = mapped_column(sa.String(50))
     credit_limit: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
@@ -66,6 +73,19 @@ class Account(Base):
     available_balance: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
     due_day: Mapped[Optional[int]] = mapped_column(sa.Integer)
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(sa.DateTime(timezone=True))
+
+    # Phase 0 (MoneyMap integration): cash-classification + manual-debt fields. kind is a free-form
+    # label (e.g. "credit_card", "loan", "bnpl", "friend_loan"); counts_as_cash gates inclusion in
+    # the Today/Future spendable-cash total; the rest support the debt-payoff simulator.
+    kind: Mapped[Optional[str]] = mapped_column(sa.String(30), nullable=True)
+    counts_as_cash: Mapped[Optional[bool]] = mapped_column(sa.Boolean, nullable=True)
+    statement_balance: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
+    minimum_payment: Mapped[Optional[float]] = mapped_column(sa.Numeric(12, 2))
+    next_due_date: Mapped[Optional[date]] = mapped_column(sa.Date)
+    apr_bps: Mapped[Optional[int]] = mapped_column(sa.Integer)
+    balance_as_of: Mapped[Optional[datetime]] = mapped_column(sa.DateTime(timezone=True))
+    term_months: Mapped[Optional[int]] = mapped_column(sa.Integer)
+    balance_source: Mapped[Optional[str]] = mapped_column(sa.String(20), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="accounts")
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account", cascade="all, delete-orphan")
@@ -111,6 +131,11 @@ class Transaction(Base):
     is_redacted: Mapped[bool] = mapped_column(sa.Boolean, default=False)
     encrypted_data: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     category_source: Mapped[str] = mapped_column(sa.String(50), default="auto")
+    # Phase 0 (MoneyMap integration): Plaid's own transaction id, unique per user -- the upsert key
+    # for modified/removed handling once Wave 2 lands it. pending/currency come straight from Plaid.
+    plaid_transaction_id: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    pending: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    currency: Mapped[Optional[str]] = mapped_column(sa.String(10), nullable=True)
     # Phase 12A: 384-dim merchant embedding for local vector-similarity categorization.
     # Filled at import time + every PATCH that changes the merchant string.
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(384), nullable=True)
@@ -146,6 +171,9 @@ class Budget(Base):
     category: Mapped[str] = mapped_column(sa.String(100), nullable=False)
     amount: Mapped[float] = mapped_column(sa.Numeric(12, 2), nullable=False)
     period: Mapped[str] = mapped_column(sa.String(20), default="monthly")
+    # Phase 0 (MoneyMap integration): budgets were 100% localStorage-driven with no server routes;
+    # this column plus new GET/PUT /api/budgets (Wave 1 FE-CORE) hydrates them server-side.
+    currency: Mapped[Optional[str]] = mapped_column(sa.String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
     user: Mapped["User"] = relationship(back_populates="budgets")

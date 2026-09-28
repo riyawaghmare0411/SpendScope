@@ -154,6 +154,12 @@ class ScenarioResult:
     interest_saved: Decimal
     months_saved: Optional[int]
     per_debt_schedule: list[dict] = field(default_factory=list)
+    # Informational only -- never subtracted from extra_payment (extra_payment is already
+    # what the user has left over after protected bills; the simulator's job is to allocate
+    # it across debts, not to re-derive it). Surfaced so the UI can warn "your protected
+    # bills this month total X" alongside the result.
+    protected_bills_total: Decimal = Decimal("0")
+    notices: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

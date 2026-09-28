@@ -10,6 +10,7 @@ Privacy-first personal finance dashboard with universal bank statement parsing.
 - **Auto-Categorization** -- 4-tier pipeline: your own category rules, then vector similarity search (pgvector) over your past corrections, then an ~80-merchant starter keyword pack, then a direction-based fallback (Income/Other)
 - **Import Batch Tracking** -- View and delete entire imports as a unit
 - **Interactive Dashboard** -- Spending trends, category breakdown, merchant analysis, and cash flow forecasting
+- **Plan / Forecast Engine (MoneyMap integration)** -- Day-by-day safe-to-spend forecast, a debt-payoff simulator (avalanche/snowball, extra payments, lump sums), multi-bank multi-currency cash aggregation, and confirm-once-then-automatic recurring bill/income detection. See "Plan & Forecast Engine" below.
 - **Redacted PDF Detection** -- Identifies and flags redacted bank statements
 - **Dark Mode** -- Full dark theme support
 - **Date Range Filters** -- Flexible time period selection across all views
@@ -143,6 +144,24 @@ SpendScope/
     auth.py             # JWT authentication and password hashing
     database.py         # Async SQLAlchemy engine and session setup
     models.py           # SQLAlchemy ORM models
+    plan_types.py       # Pure dataclasses for the plan/forecast engine (no SQLAlchemy)
+    plan_models.py      # SQLAlchemy ORM for the plan/forecast engine
+    plan_service.py     # ORM <-> plan_types bridge; money-safe JSON conversion
+    finance.py           # Day-by-day cash forecast engine
+    cash.py               # Multi-currency spendable-cash aggregation
+    simulator.py         # Debt payoff / lump-sum simulator
+    recurrence.py        # Recurring bill/income cadence classifier
+    refresh.py            # Refresh-cooldown/give-up/cached-sync timing
+    money.py               # Decimal money parsing/quantizing/JSON conversion
+    timeutil.py            # Per-user timezone resolution
+    embedding_guard.py    # Guards categorize_local.embed_text against a missing local embedder
+    plaid_privacy.py     # Plaid digit redaction, opaque handles, fixed error copy
+    plaid_fake.py         # Fixture-driven fake Plaid client (PLAID_ENV=fake)
+    plaid_sync.py          # Plaid sync orchestration
+    routes/
+      plan.py            # /api/plan/* + /api/budgets routes
+      accounts.py        # Account CRUD routes
+      plaid.py           # Plaid link/sync/webhook routes
     parsers/
       csv_parser.py     # CSV parsing with 24 bank templates
       pdf_parser.py     # PDF statement parsing via PyMuPDF
@@ -151,13 +170,15 @@ SpendScope/
     src/
       App.jsx           # Main React application
       main.jsx          # Entry point
+      components/
+        TodayPage.jsx, FuturePage.jsx, SimulatePage.jsx, AccountsPage.jsx, BudgetsPage.jsx  # Plan-engine pages
   docker-compose.yml    # PostgreSQL container
   requirements.txt      # Python dependencies
   Dockerfile            # Production container build
   railway.json          # Railway deployment config (Dockerfile builder, health check on /health)
 ```
 
-**MoneyMap integration, Phase 0 (committed, `f6386c9`):** account CRUD and Plaid/webhook routes have been extracted out of `src/api.py` into `src/routes/accounts.py` and `src/routes/plaid.py`. New `src/plan_types.py` (pure dataclasses, no SQLAlchemy) and `src/plan_models.py` (SQLAlchemy ORM, 5 new tables) lay the groundwork for a forecast/planning engine, alongside signature-only skeleton modules (`money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`) that Wave 1's parallel lanes are now filling in (uncommitted) -- see `HANDOFF.md` section 6 for current status.
+**MoneyMap integration -- Phase 0 through Wave 2 committed, Wave 3 in progress:** account CRUD and Plaid/webhook routes were extracted out of `src/api.py` into `src/routes/accounts.py` and `src/routes/plaid.py` (Phase 0, `f6386c9`). Wave 1 filled in the plan/forecast pure modules (`finance.py`, `cash.py`, `simulator.py`, `recurrence.py`, `refresh.py`), the Plaid privacy engine (`plaid_privacy.py`, `money.py`, `timeutil.py`, `plaid_sync.py`, `plaid_fake.py`), and built 5 new frontend pages (Today/Future/Simulate/Accounts/Budgets) against a frozen JSON contract, all committed. Wave 2 (`a99b4fa`) built the real backend routes (`src/routes/plan.py`, 16 routes) and `src/plan_service.py`, the ORM-to-pure-dataclass bridge, also committed. Wave 3 -- wiring the 5 pages into the sidebar navigation -- is in progress and **uncommitted** as of this doc; the Budgets page in particular is not yet in the sidebar NAV (reachable only via a button on the Spending page). See `HANDOFF.md` section 14 for the full architecture and section 6 for current git state.
 
 ## API Endpoints
 
@@ -191,9 +212,27 @@ SpendScope/
 - `DELETE /api/category-rules/{id}` -- Delete a category rule
 - `POST /api/categorize` -- Apply category rules to transactions
 
+### Plan / Forecast Engine (MoneyMap integration, Wave 2)
+- `GET /api/plan/today` -- Safe-to-spend today, balance, lowest point, next income, recurring items pending confirmation
+- `GET /api/plan/forecast?days=N` -- Day-by-day forecast (1-365 days, default 30)
+- `POST /api/plan/simulate` -- Debt payoff scenario (avalanche/snowball, extra payment, lump sum) vs. a no-extra-payment baseline
+- `POST /api/plan/overspend` -- "What if I overspend by X today" what-if, re-run against the real forecast
+- `GET /api/plan/settings` / `PUT /api/plan/settings` -- Daily limit, base currency, reserve buffer overrides
+- `GET /api/plan/recurring` / `POST /api/plan/recurring` -- List/create recurring bill or income rules
+- `PATCH /api/plan/recurring/{id}` / `DELETE /api/plan/recurring/{id}` -- Update, confirm, or dismiss a recurring rule (confirm/dismiss are a `PATCH` with `{"status": "confirmed"}` / `{"status": "dismissed"}`, not separate endpoints)
+- `GET /api/plan/events` / `POST /api/plan/events` -- List/create a one-off scheduled expense or income
+- `PATCH /api/plan/events/{id}` / `DELETE /api/plan/events/{id}` -- Update or delete a plan event
+- `GET /api/budgets` / `PUT /api/budgets` -- Category budgets (`PUT` is full-replace)
+
+Full route table with line numbers: `HANDOFF.md` section 13. Architecture and design decisions behind these routes: `HANDOFF.md` section 14.
+
 ## Bank Sync (Plaid)
 
 Optional, opt-in bank connection via Plaid (sandbox-tested against UK and US institutions). Exchanging a public token for an access token stores that access token Fernet-encrypted at rest; SpendScope then syncs transactions on demand and via a Plaid webhook, creating one Account per Plaid account. Manual CSV/PDF upload is fully independent of Plaid and remains the privacy-max path. Plaid is not yet supported for encrypted accounts -- see Encryption below.
+
+**Plaid data is readable-but-redacted server-side, not end-to-end encrypted -- a deliberate, disclosed decision.** This is different from an uploaded transaction's merchant/description, which the encryption below makes genuinely unreadable to the server. For a Plaid-synced row, `src/plaid_privacy.py` redacts digit runs of 4+ (account/card numbers) in any text before it's stored or shown, exposes account/item identifiers only as an opaque one-way hash (never Plaid's real id), never surfaces Plaid's own error text verbatim (fixed, mapped copy instead), and never exposes Plaid's official account name or mask -- the UI gets a server-generated label like "Checking 1" instead. The app states this distinction to you directly, per data source, on the Today and Accounts pages.
+
+**Local/CI testing without a real bank:** setting `PLAID_ENV=fake` swaps in a fixture-driven fake Plaid client (`src/plaid_fake.py`) instead of calling real Plaid Sandbox/Development/Production. This exists because the Plaid access tier for this project is still being decided -- it lets every plan-engine route and the sync path be built and tested without waiting on that. **As of this writing, nothing in the Plaid sync or plan/forecast engine has been tested against a real bank** -- only against these fixtures.
 
 ## Vector Search (pgvector)
 

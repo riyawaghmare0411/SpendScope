@@ -9,21 +9,28 @@ SpendScope/
 ├── docker-compose.yml                    # pgvector/pgvector:pg16 container config (switched from postgres:16-alpine in Phase 12A -- same Postgres 16 internals, volume reused)
 ├── src/
 │   ├── __init__.py                       # Package init
-│   ├── api.py                          # FastAPI backend (903 lines, 26 routes -- verified via `grep -c '@app\.' src/api.py`; 10 more extracted to src/routes/ by Phase 0, 36 total) -- auth, transactions, category rules, CSV/PDF upload, coaching stats
+│   ├── api.py                          # FastAPI backend (914 lines, 26 routes -- verified via `grep -c '^@app\.' src/api.py`; 26 more now live in src/routes/, 52 total) -- auth, transactions, category rules, CSV/PDF upload, coaching stats
 │   ├── database.py                     # Async SQLAlchemy engine, sessions, Base
 │   ├── models.py                       # 8 models: User, Account, ImportBatch, Transaction, CategoryRule, Budget, CsvTemplate, PlaidItem
 │   ├── auth.py                         # JWT + bcrypt auth, FastAPI dependencies, Pydantic schemas
-│   ├── routes/                         # Phase 0 (commit f6386c9): account CRUD + Plaid/webhook routes extracted out of api.py
-│   │   ├── accounts.py                 # 4 routes -- account CRUD (line count omitted -- Wave 1 is actively modifying this file)
-│   │   └── plaid.py                    # 6 routes -- link-token, exchange-token, sync, items, webhook (line count omitted -- Wave 1 is actively modifying this file)
-│   ├── plan_types.py                   # 168 lines, pure dataclasses, no SQLAlchemy (Phase 0) -- frozen contract for the plan/forecast engine
+│   ├── routes/                         # Phase 0 (f6386c9): account CRUD + Plaid/webhook routes extracted out of api.py; Wave 2 (a99b4fa) added plan.py
+│   │   ├── accounts.py                 # 4 routes -- account CRUD
+│   │   ├── plaid.py                    # 6 routes -- link-token, exchange-token, sync, items, webhook
+│   │   └── plan.py                     # 374 lines, 16 routes (Wave 2, LP-SVC, a99b4fa) -- /api/plan/* + /api/budgets; full table in HANDOFF.md section 13
+│   ├── plan_types.py                   # 174 lines, pure dataclasses, no SQLAlchemy (Phase 0) -- frozen contract for the plan/forecast engine
 │   ├── plan_models.py                  # 113 lines, SQLAlchemy ORM (Phase 0) -- 5 new tables: plan_settings, plan_balances, recurring_rules, balance_updates, plan_events
+│   ├── plan_service.py                 # 558 lines (Wave 2, LP-SVC, a99b4fa) -- sole ORM <-> plan_types bridge; money-safe JSON conversion via money.py
+│   ├── finance.py                      # 201 lines (Wave 1, LP-FIN, 87e8004) -- day-by-day cash forecast engine, pure module
+│   ├── cash.py                         # 54 lines (Wave 1, LP-CASH, e2992af) -- multi-currency spendable-cash aggregation, never summed across currencies
+│   ├── simulator.py                    # 345 lines (Wave 1, LP-SIM, f6be171) -- debt payoff/lump-sum simulator, fixes 4 real bugs from MoneyMap's own simulator.ts
+│   ├── recurrence.py                   # 457 lines (Wave 1, LP-REC, 0738133) -- the one recurring bill/income cadence classifier in the codebase
+│   ├── refresh.py                      # 40 lines (Wave 1, LP-CASH, e2992af) -- pure refresh-cooldown/give-up/cached-sync timing
 │   ├── embedding_guard.py              # 18 lines, fully implemented (Phase 0) -- guards categorize_local.embed_text against the broken-locally onnxruntime dependency
-│   ├── money.py                        # Phase 0 skeleton, Wave 1 filling in now (uncommitted) -- decimal money handling for the plan engine
-│   ├── timeutil.py                     # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
-│   ├── plaid_privacy.py                # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
-│   ├── plaid_sync.py                   # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
-│   ├── plaid_fake.py                   # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
+│   ├── money.py                        # 74 lines (Wave 1, BP-A, 4c5cbb5) -- Decimal money parsing/quantizing/JSON conversion for the plan engine
+│   ├── timeutil.py                     # 41 lines (Wave 1, BP-A, 4c5cbb5) -- per-user timezone resolution
+│   ├── plaid_privacy.py                # 51 lines (Wave 1, BP-A, 4c5cbb5) -- digit redaction, opaque handles, fixed error copy, server-generated display labels; see HANDOFF.md section 14.1
+│   ├── plaid_sync.py                   # 243 lines (Wave 1, BP-SVC, 68863a2) -- Plaid sync orchestration, delegated to by routes/plaid.py
+│   ├── plaid_fake.py                   # 108 lines (Wave 1, BP-SVC, 68863a2) -- fixture-driven fake Plaid client for PLAID_ENV=fake testing
 │   └── parsers/
 │       ├── __init__.py                 # Parser module init
 │       ├── csv_parser.py               # Template-based CSV parser with auto-detection
@@ -32,21 +39,35 @@ SpendScope/
 │       └── templates/                  # 24 bank template JSON files
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                     # Main React component (538 lines) -- state, handlers, data pipeline, routing
-│   │   ├── constants.js                # Shared constants, themes, helpers, formatters (165 lines)
+│   │   ├── App.jsx                     # Main React component (954 lines) -- state, handlers, data pipeline, routing. Wave 3 (uncommitted) wires the 5 plan-engine pages in.
+│   │   ├── constants.js                # Shared constants, themes, helpers, formatters, NAV (13 items as of Wave 3 -- see HANDOFF.md section 14.4)
+│   │   ├── lib/
+│   │   │   ├── crypto.js               # Envelope-encryption client (Phase E)
+│   │   │   ├── keyManager.js           # DEK unlock/storage (Phase E)
+│   │   │   └── planApi.js              # 62 lines (Wave 1, FE-CORE, c0a1f7f) -- FROZEN JSON CONTRACT client for /api/plan/*, /api/budgets, /api/plaid/sync
+│   │   ├── hooks/
+│   │   │   └── useAlerts.js            # Derives alert-banner items from accounts + filteredData (Phase 10)
 │   │   ├── components/
-│   │   │   ├── ui.jsx                  # Reusable UI primitives: Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip (98 lines)
+│   │   │   ├── ui.jsx                  # Reusable UI primitives: Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip (101 lines)
 │   │   │   ├── AuthPages.jsx           # Login + Signup forms (79 lines)
-│   │   │   ├── DashboardPage.jsx       # Overview with stats, charts, activity (87 lines)
-│   │   │   ├── SpendingPage.jsx        # Spending analysis (46 lines)
+│   │   │   ├── DashboardPage.jsx       # Overview with stats, charts, activity (108 lines)
+│   │   │   ├── SpendingPage.jsx        # Spending analysis (46 lines); "Manage budgets" button that routes to BudgetsPage lives in App.jsx ~line 907, not in this file
 │   │   │   ├── MerchantsPage.jsx       # Merchant breakdown (33 lines)
-│   │   │   ├── TransactionsPage.jsx    # Transaction list with inline editing (53 lines)
-│   │   │   ├── CalendarPage.jsx        # Calendar heatmap (20 lines)
+│   │   │   ├── TransactionsPage.jsx    # Transaction list with inline editing (80 lines)
+│   │   │   ├── CalendarPage.jsx        # Calendar heatmap (199 lines)
 │   │   │   ├── InsightsPage.jsx        # Insights and subscriptions (51 lines)
-│   │   │   ├── RulesPage.jsx           # Category rules CRUD (141 lines)
-│   │   │   ├── UploadPage.jsx          # Upload, import confirmation, column mapper (210 lines)
+│   │   │   ├── RulesPage.jsx           # Category rules CRUD (197 lines)
+│   │   │   ├── UploadPage.jsx          # Upload, import confirmation, column mapper (317 lines)
 │   │   │   ├── Sidebar.jsx             # Navigation sidebar (53 lines)
-│   │   │   └── ProfileModal.jsx        # Profile editing modal (18 lines)
+│   │   │   ├── ProfileModal.jsx        # Profile editing modal (80 lines)
+│   │   │   ├── TodayPage.jsx           # 98 lines (Wave 1, FE-TODAY, 25798bc) -- safe-to-spend today, risk, recurring confirm/dismiss
+│   │   │   ├── FuturePage.jsx          # 175 lines (Wave 1, FE-FUTURE, f6b40c1) -- day-by-day forecast + overspend what-if
+│   │   │   ├── SimulatePage.jsx        # 169 lines (Wave 1, FE-SIMULATE, b22977d) -- debt payoff scenario
+│   │   │   ├── AccountsPage.jsx        # 276 lines (Wave 1, FE-ACCOUNTS, 2a33d0a) -- every account, grouped/totaled per currency
+│   │   │   ├── BudgetsPage.jsx         # 104 lines (Wave 1, FE-BUDGETS, e7a3b66) -- server-hydrated budgets via /api/budgets
+│   │   │   ├── DataVisibilityNote.jsx  # 20 lines (Wave 1) -- Plaid-redacted-but-readable vs. upload-encrypted disclosure copy
+│   │   │   └── plan/
+│   │   │       └── primitives.jsx      # 73 lines (Wave 1) -- shared UI primitives for the 5 plan-engine pages
 │   │   ├── App.css                     # Legacy styles (card padding, animations)
 │   │   ├── index.css                   # Tailwind CSS import
 │   │   └── main.jsx                    # React entry point
@@ -86,7 +107,7 @@ SpendScope/
 
 ### src/api.py
 - FastAPI app with CORS middleware
-- **Corrected 2026-09-28 (Phase 0, commit `f6386c9`):** 903 lines, 26 routes (verified via `grep -c '@app\.' src/api.py`) -- auth, transactions, import batches, account wipe, CSV/PDF upload (all now auth-required), coaching stats, categorize-local, category rules (auth-required), legacy bulk categorize. Account CRUD (4 routes) and Plaid link/exchange/sync/items + webhook (6 routes) were extracted into `src/routes/accounts.py` and `src/routes/plaid.py` -- 36 routes total across all three files. Full line-by-line table in `HANDOFF.md` section 13.
+- **Corrected 2026-09-28 (this docs pass):** 914 lines, 26 routes (verified via `grep -c '^@app\.' src/api.py`) -- auth, transactions, import batches, account wipe, CSV/PDF upload (all now auth-required), coaching stats, categorize-local, category rules (auth-required), legacy bulk categorize. Account CRUD (4 routes, Phase 0) and Plaid link/exchange/sync/items + webhook (6 routes, Phase 0) were extracted into `src/routes/accounts.py` and `src/routes/plaid.py`; Wave 2 (`a99b4fa`) added `src/routes/plan.py` (16 routes, `/api/plan/*` + `/api/budgets`) -- **52 routes total across four files**. Full line-by-line table in `HANDOFF.md` section 13.
 - PDF parser: state machine for Lloyds bank format (date/description/type/money_in/money_out/balance)
 - Reads from `data/processed/transactions_frontend.json`
 - Dependencies: fastapi, fitz (PyMuPDF), uvicorn
@@ -118,6 +139,9 @@ SpendScope/
 ---
 
 ## Changelog
+
+### 2026-09-28 -- MoneyMap integration Wave 1 + Wave 2 committed, Wave 3 in progress: plan/forecast engine, Plaid privacy engine, 5 new pages, docs pass (commits 4c5cbb5..a99b4fa)
+Wave 1 (8 lane commits: BP-A `4c5cbb5`, BP-SVC `68863a2`, BP-ROUTES `3369109`, BP-ACCT `b8414d2`, LP-FIN `87e8004`, LP-REC `0738133`, LP-SIM `f6be171`, LP-CASH `e2992af`, plus frontend lanes FE-CORE `c0a1f7f`, FE-TODAY `25798bc`, FE-FUTURE `f6b40c1`, FE-SIMULATE `b22977d`, FE-ACCOUNTS `2a33d0a`, FE-BUDGETS `e7a3b66`) filled in every Phase-0 skeleton and built new pure modules: `src/finance.py` (day-by-day cash forecast, ported from MoneyMap's `lib/finance.ts`), `src/cash.py` (multi-currency spendable-cash aggregation, never summed across currencies, fixes a MoneyMap bug where a missing `balance_as_of` silently defaulted to 0), `src/simulator.py` (debt payoff/lump-sum simulator, avalanche/snowball/custom, fixes 4 real bugs found in MoneyMap's own `simulator.ts` -- see its module docstring), `src/recurrence.py` (the one recurring bill/income cadence classifier in the codebase; `stats_coach.py`'s detector is now a thin adapter over it), and `src/refresh.py` (pure sync-timing logic). Also built the Plaid privacy engine `src/plaid_privacy.py` (digit redaction, opaque id hashing, fixed error copy, server-generated display labels) implementing Riya's 2026-09-26 decision that Plaid-synced merchant/description text is readable-but-redacted server-side, not end-to-end encrypted like an uploaded row; `src/money.py` (Decimal money parsing/quantizing) and `src/timeutil.py` (per-user timezone resolution); and `src/plaid_fake.py` (fixture-driven fake Plaid client behind `PLAID_ENV=fake`, added because Riya's real Plaid access tier was undecided). Built 5 new frontend pages against a frozen JSON contract before the backend routes existed: `TodayPage.jsx`, `FuturePage.jsx`, `SimulatePage.jsx`, `AccountsPage.jsx`, `BudgetsPage.jsx`, plus shared primitives in `components/plan/primitives.jsx`, a disclosure component `DataVisibilityNote.jsx`, and the `frontend/src/lib/planApi.js` client. Wave 2 (LP-SVC, `a99b4fa`) then built the real backend: `src/routes/plan.py` (374 lines, 16 routes: `/api/plan/today`, `/api/plan/forecast`, `/api/plan/simulate`, `/api/plan/overspend`, `/api/plan/settings` GET+PUT, `/api/plan/recurring` GET+POST and `/api/plan/recurring/{id}` PATCH+DELETE, `/api/plan/events` GET+POST and `/api/plan/events/{id}` PATCH+DELETE, `/api/budgets` GET+PUT) and `src/plan_service.py` (558 lines, the sole ORM-row-to-plan_types bridge). Backend total is now 52 routes across four files (`api.py` 26, `routes/accounts.py` 4, `routes/plaid.py` 6, `routes/plan.py` 16). Wave 3 (uncommitted as of this entry) is wiring the 5 pages into `frontend/src/App.jsx`'s render switch and `constants.js`'s `NAV` array -- `today`/`future`/`simulate`/`accounts` are in the sidebar NAV (13 items total), but `budgets` is not; `BudgetsPage` is reachable only via the "Manage budgets" button on the Spending page. This same commit also updated `HANDOFF.md`, `README.md`, `setup/kt.md` and this file to describe the integration as it actually exists, replacing the Phase-0-only description a previous docs pass (`6c8d738`, DOCS-PASS-1) had left in place. **Nothing in this integration has been tested against a real bank** -- only against `PLAID_ENV=fake` fixtures; the onnxruntime/VC++ blocker on this machine, Riya's real Plaid access tier, and the real-bank PC test are all still outstanding (Riya's own action items). Full detail: `HANDOFF.md` section 14.
 
 ### 2026-09-27 -- Phase 0 of the MoneyMap integration: router extraction, plan-engine schema, pure-module skeletons (commit f6386c9)
 Foundational, serial step before Wave 1's parallel lanes. Extracted the account CRUD and Plaid/webhook routes out of `src/api.py` into new `src/routes/accounts.py` and `src/routes/plaid.py` (byte-identical bodies, same 36 routes/paths/methods -- verified via before/after route-count grep). Fixed a real bug found during reconciliation: `Account.plaid_account_id` had a stale non-unique index colliding by name with the intended unique index, so there was no real uniqueness enforcement on Plaid account ids -- replaced with a correctly-scoped partial unique index on `(user_id, plaid_account_id)`; also changed `accounts.plaid_item_id`'s FK from `CASCADE` to `SET NULL` so disconnecting a Plaid item keeps the account and its transactions, matching existing UI copy. Added schema for the plan/forecast engine: `users.timezone`; 9 new `Account` columns (`kind`, `counts_as_cash`, `statement_balance`, `minimum_payment`, `next_due_date`, `apr_bps`, `balance_as_of`, `term_months`, `balance_source`); 3 new `Transaction` columns (`plaid_transaction_id` unique-per-user, `pending`, `currency`); `Budget.currency` (budgets had zero server routes and were 100% localStorage-driven -- gap found during reconciliation). New `src/plan_models.py` (5 new tables: `plan_settings`, `plan_balances`, `recurring_rules`, `balance_updates`, `plan_events`) and `src/plan_types.py` (pure dataclasses, no SQLAlchemy) as the frozen contract every pure logic module imports against. New signature-only skeletons for Wave 1 to fill in: `money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`. New `src/embedding_guard.py`, fully implemented, wraps `categorize_local.embed_text` so a Plaid sync never 500s just because the local ONNX embedder is unavailable. Wave 1's parallel lanes are in progress in this worktree as of this entry (uncommitted) -- see `HANDOFF.md` section 6 for how to check current state.

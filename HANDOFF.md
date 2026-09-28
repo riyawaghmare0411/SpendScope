@@ -103,25 +103,32 @@ focused-knuth/
 │   ├── kt.md                               # project knowledge transfer (rules + architecture + design decisions 1-16)
 │   └── structure.md                        # file reference + changelog (updated phase-by-phase)
 ├── src/
-│   ├── api.py                              # 903 lines, 26 routes (verified via `grep -c '@app\.' src/api.py`; 10 more were extracted into src/routes/ by Phase 0 -- 36 total across api.py + routes/accounts.py (4) + routes/plaid.py (6); see section 13 for the full table)
+│   ├── api.py                              # 914 lines, 26 routes (verified via `grep -c '^@app\.' src/api.py`; 26 more now live in src/routes/ -- 52 total across api.py + routes/accounts.py (4) + routes/plaid.py (6) + routes/plan.py (16); see section 13 for the full table)
 │   ├── auth.py                             # 100 lines, JWT issue/verify + bcrypt
 │   ├── database.py                         # async engine + migration block (extension created before create_all, then per-statement transactions that raise on failure -- 08362aa/F-2)
 │   ├── models.py                           # 8 SQLAlchemy models (User, Account, ImportBatch, Transaction, CategoryRule, Budget, CsvTemplate, PlaidItem)
 │   ├── categorize_local.py                 # 124 lines, fastembed singleton + KNN search
 │   ├── starter_rules.py                    # 123 lines, ~80 merchant keyword rules
-│   ├── stats_coach.py                      # 351 lines, deterministic financial summary + generate_action_plan
+│   ├── stats_coach.py                      # 360 lines, deterministic financial summary + generate_action_plan (its _detect_recurring_subs is now a thin adapter over recurrence.py's find_recurring_candidates -- one detector, not two)
 │   ├── plaid_service.py                    # 334 lines, Plaid client + Fernet token crypto + transactions/sync cursor
-│   ├── routes/                             # Phase 0 (f6386c9): account CRUD + Plaid/webhook routes extracted verbatim out of api.py
-│   │   ├── accounts.py                     # 4 routes -- GET/POST /api/accounts, PATCH/DELETE /api/accounts/{id} (line count omitted -- Wave 1 is actively modifying this file, see section 6)
-│   │   └── plaid.py                        # 6 routes -- link-token, exchange-token, sync, items, item delete, /webhooks/plaid (line count omitted -- Wave 1 is actively modifying this file, see section 6)
-│   ├── plan_types.py                       # 168 lines, pure dataclasses, no SQLAlchemy (Phase 0) -- frozen contract for the plan/forecast engine
-│   ├── plan_models.py                      # 113 lines, SQLAlchemy ORM (Phase 0) -- 5 new tables: plan_settings, plan_balances, recurring_rules, balance_updates, plan_events
+│   ├── routes/                             # Phase 0 (f6386c9) extracted accounts.py/plaid.py verbatim out of api.py; Wave 2 (a99b4fa) added plan.py
+│   │   ├── accounts.py                     # 4 routes -- GET/POST /api/accounts, PATCH/DELETE /api/accounts/{id}
+│   │   ├── plaid.py                        # 6 routes -- link-token, exchange-token, sync, items, item delete, /webhooks/plaid
+│   │   └── plan.py                         # 374 lines, 16 routes (Wave 2, LP-SVC, a99b4fa) -- /api/plan/* (today, forecast, simulate, overspend, settings, recurring, events) + /api/budgets; full table in section 13
+│   ├── plan_types.py                       # 174 lines, pure dataclasses, no SQLAlchemy (Phase 0) -- frozen contract every pure module below imports against
+│   ├── plan_models.py                      # 113 lines, SQLAlchemy ORM (Phase 0) -- 5 tables: plan_settings, plan_balances, recurring_rules, balance_updates, plan_events
+│   ├── plan_service.py                     # 558 lines (Wave 2, LP-SVC, a99b4fa) -- the only place ORM rows become plan_types dataclasses and back; every money value crosses the JSON boundary through money.py
+│   ├── finance.py                          # 201 lines (Wave 1, LP-FIN, 87e8004) -- day-by-day cash forecast engine, ported from MoneyMap's lib/finance.ts; pure module (plan_types + stdlib only)
+│   ├── cash.py                             # 54 lines (Wave 1, LP-CASH, e2992af) -- multi-bank/multi-currency spendable-cash aggregation, never summed across currencies; fixes a MoneyMap bug (missing balance_as_of silently treated as 0)
+│   ├── simulator.py                        # 345 lines (Wave 1, LP-SIM, f6be171) -- debt payoff/lump-sum/friend-loan simulator, avalanche/snowball/custom; ports MoneyMap's lib/simulator.ts but fixes 4 real bugs found in it (see module docstring)
+│   ├── recurrence.py                       # 457 lines (Wave 1, LP-REC, 0738133) -- the one recurring bill/income cadence classifier in the codebase; stats_coach.py's detector is now a thin adapter over this
+│   ├── refresh.py                          # 40 lines (Wave 1, part of LP-CASH, e2992af) -- refresh-cooldown/give-up/cached-sync timing, ported from MoneyMap's lib/refresh.ts; pure timing logic, no networking
 │   ├── embedding_guard.py                  # 18 lines, fully implemented (Phase 0) -- wraps categorize_local.embed_text so a Plaid sync never 500s if the local ONNX embedder is unavailable
-│   ├── money.py                            # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted) -- decimal money handling for the plan engine
-│   ├── timeutil.py                         # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
-│   ├── plaid_privacy.py                    # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
-│   ├── plaid_sync.py                       # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
-│   ├── plaid_fake.py                       # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
+│   ├── money.py                            # 74 lines (Wave 1, BP-A, 4c5cbb5) -- Decimal money parsing/quantizing/JSON-number conversion for the plan engine
+│   ├── timeutil.py                         # 41 lines (Wave 1, BP-A, 4c5cbb5) -- per-user timezone resolution (PlanSettings/User.timezone/country) for "today" in the forecast
+│   ├── plaid_privacy.py                    # 51 lines (Wave 1, BP-A, 4c5cbb5) -- Plaid privacy engineering; see section 14 for what it actually does and the disclosed readable-but-redacted decision
+│   ├── plaid_sync.py                       # 243 lines (Wave 1, BP-SVC, 68863a2) -- Plaid sync orchestration, delegated to by routes/plaid.py (BP-ROUTES, 3369109)
+│   ├── plaid_fake.py                       # 108 lines (Wave 1, BP-SVC, 68863a2) -- fixture-driven fake Plaid client for PLAID_ENV=fake; see section 14
 │   └── parsers/
 │       ├── csv_parser.py                   # template-based CSV with auto-detection
 │       ├── pdf_parser.py                   # template-based PDF (Lloyds works best)
@@ -132,33 +139,49 @@ focused-knuth/
 │   ├── vite.config.js                      # react + tailwind plugin
 │   ├── vercel.json                         # SPA rewrites to index.html
 │   └── src/
-│       ├── App.jsx                         # 767 lines, main orchestration, useState x20+, routing, all handlers
-│       ├── constants.js                    # themes, CAT_COLORS, PEER_BENCHMARKS, MERCHANT_CATEGORIES, fmt helpers
+│       ├── App.jsx                         # 954 lines, main orchestration, useState x20+, routing, all handlers -- Wave 3 (uncommitted) wires the 5 new pages in; see section 14
+│       ├── constants.js                    # themes, CAT_COLORS, PEER_BENCHMARKS, MERCHANT_CATEGORIES, fmt helpers, NAV (13 items -- see section 14)
 │       ├── main.jsx                        # React entry
+│       ├── lib/
+│       │   ├── crypto.js                   # envelope-encryption client (Phase E)
+│       │   ├── keyManager.js               # DEK unlock/storage (Phase E)
+│       │   └── planApi.js                  # 62 lines (Wave 1, FE-CORE, c0a1f7f) -- FROZEN JSON CONTRACT client for /api/plan/*, /api/budgets, /api/plaid/sync
+│       ├── hooks/
+│       │   └── useAlerts.js                # derives alert-banner items from accounts + filteredData (Phase 10)
 │       └── components/
 │           ├── ui.jsx                      # primitives: Sphere, Counter, SkeletonBlock, HealthRing, VelocityGauge, Tip, PieTip
 │           ├── AuthPages.jsx               # Login + Signup forms
 │           ├── Sidebar.jsx                 # nav + account dropdown
 │           ├── DashboardPage.jsx           # AlertBanner -> AccountCardsRow -> RemainingMonthWidget -> stats -> Cash Flow -> charts -> Recent
-│           ├── SpendingPage.jsx            # category breakdown + budgets
+│           ├── SpendingPage.jsx            # category breakdown + budgets ("Manage budgets" button that routes to BudgetsPage lives in App.jsx ~line 907, Wave 1, not in this file)
 │           ├── MerchantsPage.jsx           # top merchants
 │           ├── TransactionsPage.jsx        # 80 lines, clickable rows -> EditTransactionModal
-│           ├── EditTransactionModal.jsx    # 184 lines, full-row edit: direction, category, merchant, amount, "apply to all"
+│           ├── EditTransactionModal.jsx    # 197 lines, full-row edit: direction, category, merchant, amount, "apply to all"
 │           ├── CalendarPage.jsx            # 199 lines, daily spend cells (green/amber/red) + subscription dots + click-day drill-down
 │           ├── InsightsPage.jsx            # anomalies, subscriptions, savings tips, peer comparison
-│           ├── CoachPage.jsx               # 277 lines, deterministic action tracker with mark-done (Phase 14D)
-│           ├── RulesPage.jsx               # 229 lines, custom + learned rules CRUD (Phase 14E added explainer/examples/preview)
-│           ├── UploadPage.jsx              # 297 lines, multi-file upload + per-file review (Phase 17)
+│           ├── CoachPage.jsx               # 279 lines, deterministic action tracker with mark-done (Phase 14D)
+│           ├── RulesPage.jsx               # 197 lines, custom + learned rules CRUD (Phase 14E added explainer/examples/preview)
+│           ├── UploadPage.jsx              # 317 lines, multi-file upload + per-file review (Phase 17)
 │           ├── AccountCardsRow.jsx         # horizontal scrolling tile per account, util bar, due-date countdown
-│           ├── AccountsListPanel.jsx       # 202 lines, rename / delete / open account (Phase 17)
+│           ├── AccountsListPanel.jsx       # 202 lines, rename / delete / open account (Phase 17) -- distinct from the new plan-engine AccountsPage.jsx below
 │           ├── RemainingMonthWidget.jsx    # X left this month + projected EOM + daily allowance
 │           ├── AlertBanner.jsx             # dismissible glass-pill banners
-│           ├── PlaidConnect.jsx            # 237 lines, link button + connected items list
-│           └── ProfileModal.jsx            # 80 lines, profile edit + Danger Zone "WIPE" two-step
+│           ├── PlaidConnect.jsx            # 260 lines, link button + connected items list
+│           ├── ProfileModal.jsx            # 80 lines, profile edit + Danger Zone "WIPE" two-step
+│           ├── EncryptionSettings.jsx      # 430 lines, envelope-encryption setup/recovery UI (Phase E)
+│           ├── TodayPage.jsx               # 98 lines (Wave 1, FE-TODAY, 25798bc) -- safe-to-spend today, risk badge, next income, recurring confirm/dismiss queue
+│           ├── FuturePage.jsx              # 175 lines (Wave 1, FE-FUTURE, f6b40c1) -- day-by-day forecast (7/14/30/60/90-day) + "what if I overspend today" simulator
+│           ├── SimulatePage.jsx            # 169 lines (Wave 1, FE-SIMULATE, b22977d) -- debt payoff scenario (avalanche/snowball, extra payment, lump sum)
+│           ├── AccountsPage.jsx            # 276 lines (Wave 1, FE-ACCOUNTS, 2a33d0a) -- every account across every bank, grouped/totaled per currency, manual debt-account CRUD
+│           ├── BudgetsPage.jsx             # 104 lines (Wave 1, FE-BUDGETS, e7a3b66) -- server-hydrated category budgets via /api/budgets (full-replace on save)
+│           ├── DataVisibilityNote.jsx      # 20 lines (Wave 1) -- FROZEN DISCLOSURE COMPONENT: tells the user per data source whether rows are Plaid-redacted-but-readable or upload-encrypted; see section 14
+│           └── plan/
+│               └── primitives.jsx          # 73 lines (Wave 1) -- shared UI primitives for the 5 plan pages (PlanCard, RiskBadge, MoneyStat, SectionHeader, EmptyState, ConfirmDismissRow)
 ├── data/
 │   ├── synthetic/
 │   │   ├── demo_transactions.csv           # UK demo, July 2025
 │   │   └── Banking_Transactions_USA_2023_2024.csv
+│   ├── plaid_fixtures/                     # Wave 1 (BP-SVC) -- scenario JSON fixtures read by src/plaid_fake.py under PLAID_ENV=fake
 │   ├── processed/                          # gitignored, parsed transaction JSON if any
 │   └── raw/                                # gitignored, uploaded PDFs
 └── notebooks/
@@ -224,8 +247,9 @@ curl -X POST http://127.0.0.1:8000/api/categorize-local
 
 # Route count
 curl -s http://127.0.0.1:8000/openapi.json | python -c "import json,sys; print(len(json.load(sys.stdin)['paths']))"
-# Expected: 31 paths (36 routes across api.py + routes/accounts.py + routes/plaid.py, but 5 paths
-# carry two methods each -- e.g. GET+PUT /api/auth/me -- so len(paths) undercounts routes)
+# Expected: 41 paths (52 routes across api.py + routes/accounts.py + routes/plaid.py + routes/plan.py,
+# but 11 paths carry two methods each -- e.g. GET+PUT /api/auth/me -- so len(paths) undercounts routes;
+# see section 13)
 
 # Postgres pgvector extension live
 docker exec spendscope_db psql -U spendscope -d spendscope -c "SELECT * FROM pg_extension WHERE extname='vector';"
@@ -380,8 +404,8 @@ All phases are pulled from `C:\Users\riyaw\.claude\plans\robust-scribbling-bengi
 
 ### Git
 - Branch: `phase-a-b-fixes` (pushed to `origin/phase-a-b-fixes` on GitHub; CI runs on it)
-- Latest commit on branch: `f6386c9` -- "Phase 0: extract Plaid/account routers, merge plan-engine schema, add pure-module skeletons"
-- Working tree: **NOT clean** -- Wave 1 (MoneyMap integration) lane work is in progress on top of `f6386c9` in this worktree (uncommitted edits to `money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`, `stats_coach.py`, `src/routes/accounts.py`, `src/routes/plaid.py`, plus new untracked pure-modules and frontend pages under `frontend/src/components/`). This is a live in-progress snapshot -- run `git status --short` for the current list before assuming any of it is finished.
+- Latest commit on branch: `a99b4fa` -- "LP-SVC (Wave 2): plan-engine backend -- routes/plan.py + plan_service.py"
+- Working tree: **NOT clean, but small** -- Wave 3 is wiring the 5 Wave-1 frontend pages into navigation, uncommitted, on top of `a99b4fa`: `frontend/src/App.jsx` (imports + render branches for the 5 pages) and `frontend/src/constants.js` (NAV entries). Everything through Wave 2 (Phase 0's schema/skeletons, all of Wave 1's pure modules/Plaid-privacy modules/frontend pages, and Wave 2's `routes/plan.py` + `plan_service.py`) is committed. Run `git status --short` for the current list before assuming anything below is finished -- this docs pass itself only touches `HANDOFF.md`/`README.md`/`setup/kt.md`/`setup/structure.md`.
 - Commit history on this branch (oldest to newest of the current run):
   ```
   0a688bd Phase 21 + 22 + 23: calendar timezone, rule shape, edit-save refresh
@@ -397,17 +421,35 @@ All phases are pulled from `C:\Users\riyaw\.claude\plans\robust-scribbling-bengi
   c6c1c72 PARSERS: fix D-5, D-7 in pdf_parser.py and redaction_detector.py
   a031f22 FE follow-ups: ProfileModal crash, PDF reason messages, unlock-error reset, failed-import visibility
   f6386c9 Phase 0: extract Plaid/account routers, merge plan-engine schema, add pure-module skeletons
+  4c5cbb5 BP-A: implement money.py, timeutil.py, plaid_privacy.py skeletons
+  68863a2 BP-SVC: fake Plaid client + sync orchestration with privacy/embedding guards
+  3369109 BP-ROUTES: delegate Plaid sync to src/plaid_sync.py
+  b8414d2 BP-ACCT: manual debt fields + counts_as_cash on account routes
+  87e8004 LP-FIN: port MoneyMap's day-by-day cash forecast engine
+  0738133 LP-REC: unified recurring bill/income classifier
+  f6be171 LP-SIM: debt-payoff/lump-sum simulator with fixes to MoneyMap's own bugs
+  e2992af LP-CASH: multi-bank multi-currency cash aggregation + refresh timing
+  c0a1f7f FE-CORE: plan-engine API client, shared primitives, retire client-side forecast
+  25798bc FE-TODAY: safe-to-spend-today page with recurring confirm/dismiss
+  f6b40c1 FE-FUTURE: day-by-day forecast page with overspend simulation
+  b22977d FE-SIMULATE: debt-payoff scenario page
+  2a33d0a FE-ACCOUNTS: multi-bank multi-currency accounts page
+  e7a3b66 FE-BUDGETS: server-hydrated budget management page
+  6c8d738 DOCS-PASS-1: correct stale references from the previous docs pass
+  a99b4fa LP-SVC (Wave 2): plan-engine backend -- routes/plan.py + plan_service.py
   ```
 - The five lane commits (`185e300`, `f885ff3`, `08362aa`, `1189e60`, `c6c1c72`) landed 2026-09-13; none are still open.
-- **Phase 0 of the MoneyMap integration** (commit `f6386c9`, 2026-09-27) is the foundational, serial step before Wave 1's parallel lanes: extracted the account CRUD and Plaid/webhook routes out of `api.py` into `src/routes/accounts.py` and `src/routes/plaid.py` (same 36 routes, same paths/methods -- verified via before/after route-count grep); fixed a real bug where `Account.plaid_account_id` had a stale non-unique index that silently collided by name with the intended unique index, replaced with a correctly-scoped partial unique index on `(user_id, plaid_account_id)`; changed `accounts.plaid_item_id`'s FK from `CASCADE` to `SET NULL` so disconnecting a Plaid item keeps the account and its transactions; added the plan/forecast engine schema (`users.timezone`; 9 new `Account` columns; 3 new `Transaction` columns incl. a per-user-unique `plaid_transaction_id`; `Budget.currency`) plus 5 new tables in new `src/plan_models.py` (`plan_settings`, `plan_balances`, `recurring_rules`, `balance_updates`, `plan_events`) and pure dataclass contracts in new `src/plan_types.py`; added signature-only skeletons for Wave 1 to fill in (`money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`) plus a fully-implemented `src/embedding_guard.py`. Wave 1's parallel lanes are running now (see "Working tree" above) -- their scope isn't finalized/merged yet, so it isn't described here.
-- **Latest CI run:** `36344348862` on tip `f6386c9` = **SUCCESS** (verified via `gh run list --branch phase-a-b-fixes`).
+- **MoneyMap integration -- Phase 0 through Wave 2 are committed; Wave 3 (nav wiring) is in progress.** Phase 0 (`f6386c9`) was the foundational, serial step: extracted account CRUD and Plaid/webhook routes into `src/routes/`, fixed a stale non-unique index on `Account.plaid_account_id`, changed `accounts.plaid_item_id`'s FK from `CASCADE` to `SET NULL`, and added the plan/forecast schema (`plan_models.py`, `plan_types.py`) plus signature-only skeletons. Wave 1's 14 parallel lanes (`4c5cbb5` through `e7a3b66` -- 8 backend lanes: BP-A, BP-SVC, BP-ROUTES, BP-ACCT, LP-FIN, LP-REC, LP-SIM, LP-CASH; 6 frontend lanes: FE-CORE, FE-TODAY, FE-FUTURE, FE-SIMULATE, FE-ACCOUNTS, FE-BUDGETS) filled in every skeleton, added the pure forecast/cash/simulator/recurrence modules, and built the 5 new frontend pages against a frozen JSON contract before the backend routes existed (each page renders "not available yet" on a fetch failure rather than crashing -- AccountsPage is the exception, surfacing "Could not update: ..." instead). Wave 2 (`a99b4fa`, LP-SVC) then built the real `/api/plan/*` + `/api/budgets` routes and `plan_service.py`, the sole ORM-to-pure-dataclass bridge. Wave 3 (uncommitted) is wiring the 5 pages into `App.jsx`'s render switch and `constants.js`'s `NAV` array -- see section 14 for the full architecture, API surface, and exactly what Wave 3 has and hasn't wired up yet.
+- **Latest CI run:** `36344348862` on tip `f6386c9` = **SUCCESS** (verified via `gh run list --branch phase-a-b-fixes`). **Not yet re-verified against Wave 1/Wave 2/Wave 3** -- re-run `gh run list --branch phase-a-b-fixes` before trusting CI is still green on the current tip. `tests/test_plaid_fake_sync.py` and `tests/test_plan_oracle.py` exist (Wave 1/2) but are **not yet wired into `.github/workflows/ci.yml`** -- only the pre-MoneyMap 7 tests run in CI today (verified via `grep -n "test_" .github/workflows/ci.yml`).
 - **CI (history):** pushed to `origin/phase-a-b-fixes` (`git push` confirmed). CI run `34772218177` on then-tip `c6c1c72` = **SUCCESS** -- both the `frontend` job and the `test` job passed, all 7 backend tests green on Linux including the new `tests/test_rules_isolation.py`; this is the first fully green run on this branch (verified via `gh run view 34772218177`). An earlier run, `34768509314` on `34131e9`, **FAILED** at app boot: `asyncpg.exceptions.UndefinedObjectError: type "vector" does not exist` (verified via `gh run view 34768509314 --log-failed`) -- `init_db()` ran `Base.metadata.create_all` before `CREATE EXTENSION vector`, so the `Vector(384)` embedding column's type didn't exist yet when the table was created. Fixed in `08362aa` (F-2): the extension is now created first, in its own transaction, before `create_all` runs.
 - **Correction to the record:** an earlier session claimed the silent-import banner bug (A-1) was fixed and hand-verified. That was wrong -- `UploadPage.jsx` gated the error banner behind `!pendingImport`, so it never rendered once the multi-file import review view was open. Verified fixed in the FE-CORE lane commit (`185e300`): the review view (`pendingImports.length > 0`) now renders its own `uploadStatus.type === 'error'` banner directly (`UploadPage.jsx` ~lines 109-117, comment marked `A-1:`).
 
 ### Services
 - Local: Docker + Postgres are up (`localhost:5432`, db `spendscope`, user `spendscope`/`spendscope_dev`). Backend/frontend dev servers still need to be started per-session -- see the cookbook in section 4.
-- **onnxruntime is broken on this machine, by Riya's own choice, and is deliberately NOT being fixed.** Any local code path that embeds a plaintext merchant string -- plaintext transaction import, `POST /api/categorize-local` -- returns HTTP 500 locally. Encrypted imports and every other path work fine locally.
+- **onnxruntime is broken on this machine, by Riya's own choice, and is deliberately NOT being fixed.** Any local code path that embeds a plaintext merchant string -- plaintext transaction import, `POST /api/categorize-local` -- returns HTTP 500 locally. Encrypted imports and every other path work fine locally. **Still unresolved as of this docs pass** -- it is one of Riya's own outstanding action items (see section 10, item 10, and section 14).
 - Plaintext-import / categorize tests therefore only run green in GitHub Actions CI (Linux), not on this machine.
+- **`PLAID_ENV=fake` testing mode (Wave 1, BP-SVC):** the whole Plaid surface can run against `src/plaid_fake.py`'s fixture-driven fake client instead of real Plaid Sandbox/Production, because Riya's own Plaid access tier is still undecided ("i dont know yet need to check" -- her words, in the module docstring). This lets every plan-engine route, the sync orchestration, and the tests run today regardless of tier. `.env`/`.env.example` still default to `PLAID_ENV=sandbox` -- `fake` must be set explicitly, and `src.plaid_service.get_plaid_client()` itself rejects `PLAID_ENV=fake` (raises `Invalid PLAID_ENV`), since the fake client is selected one layer up in `src/plaid_fake.get_client()`, before that function is ever called. See section 14 for detail and `tests/test_plaid_fake_sync.py`'s module docstring for the gotcha around when the server process actually picks the env var up.
+- **Nothing in the plan/forecast/Plaid-privacy engine has been tested against a real bank yet.** All Wave 1/2 testing so far is against `PLAID_ENV=fake` fixtures. The real-bank PC test (Riya's hands, on this machine) is still outstanding, blocked in part by the onnxruntime issue above and by the undecided Plaid access tier -- both are Riya's own action items, not something to silently mark done.
 - Production Railway / Vercel state: not re-verified this session -- see section 1 for last-known URLs, and re-check before assuming either is up.
 
 ### Open todos / queued features (next Claude can pick from)
@@ -422,6 +464,7 @@ These are load-bearing -- do NOT regress.
 - **No Anthropic / OpenAI / any LLM API calls.** Phase 12 ripped this out entirely. `httpx` package remains only because plaid-python needs it.
 - **Local-only ML.** fastembed (ONNX runtime, ~80MB) + pgvector cosine KNN runs on-server. Model is BAAI/bge-small-en-v1.5, MIT-licensed, baked into the Docker image at build time (offline mode in prod).
 - **Plaid is opt-in.** Manual CSV/PDF upload is the privacy-max path and must keep working. Plaid access tokens are Fernet-encrypted at rest using `PLAID_TOKEN_ENCRYPTION_KEY`.
+- **Plaid-synced merchant/description text is readable-but-redacted, NOT end-to-end encrypted -- a deliberate, disclosed decision (Riya, 2026-09-26).** This is different from an uploaded row's merchant/description, which Phase E's envelope encryption makes genuinely unreadable server-side. `src/plaid_privacy.py` (Wave 1) is what "redacted" means in practice: `redact_digits()` replaces every run of 4+ digits (account/card numbers) with a fixed placeholder before a Plaid string is stored or shown; account/item ids are only ever exposed as `opaque_handle()`'s truncated SHA-256 digest, never Plaid's real id; Plaid's own error text is never surfaced verbatim -- `error_copy_for()` maps known `error_code`s to fixed, non-leaking copy; and Plaid's `official_name`/mask never leave the server -- the UI gets a server-generated `generate_display_label()` string instead (e.g. "Checking 1"). The frontend's `DataVisibilityNote.jsx` (Wave 1) states this distinction to the user directly, per data source, on the Today/Accounts pages. See section 14.
 - **Zero-knowledge encryption is opt-in (Phase 7).** Server only sees ciphertext blobs + plaintext `category` column. Web Crypto API on the client derives keys from password + salt; recovery codes are shown ONCE at signup.
 - **JWT only.** No Google/GitHub OAuth -- those env vars are placeholders.
 - **No raw bank files persisted.** PDF parser writes nothing to disk after parse. CSV is parsed in-browser by PapaParse and never sent unparsed.
@@ -461,7 +504,7 @@ From `C:\Users\riyaw\.claude\CLAUDE.md` + observed in commits:
 1. Backend PATCH first. `curl -X PATCH http://127.0.0.1:8000/api/transactions/<id> -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"category":"Transport"}'` -- expect 200.
 2. Then `curl -X GET http://127.0.0.1:8000/api/transactions -H "Authorization: Bearer <token>"` -- confirm the row's category column shows the new value. If yes, backend is fine.
 3. If frontend shows stale value: the React state mutated locally but didn't refresh from server. Look for `applyChangesLocally` or `setData(prev => ...)` calls that aren't followed by a `refreshTransactions()`.
-4. Check `_match_rule` (`src/api.py:775`) -- ensure no rule with empty `match_value` exists. Query: `docker exec spendscope_db psql -U spendscope -d spendscope -c "SELECT id, match_type, match_value, category FROM category_rules WHERE COALESCE(match_value,'')='';"` -- should return 0 rows.
+4. Check `_match_rule` (`src/api.py:778`) -- ensure no rule with empty `match_value` exists. Query: `docker exec spendscope_db psql -U spendscope -d spendscope -c "SELECT id, match_type, match_value, category FROM category_rules WHERE COALESCE(match_value,'')='';"` -- should return 0 rows.
 
 ### Debug 401-handler bugs (Phase 16 / 19 pattern)
 1. Symptom: user clicks an action button, gets a dead-end "HTTP 401" error or silent failure. They were logged in for >60 min so the JWT expired.
@@ -527,8 +570,11 @@ Do NOT add `Co-Authored-By` lines. Do NOT include emojis.
 | 6 | Real PDF bank-statement fixtures | test coverage | medium | `data/raw/fixtures/` (gitignored) has never held a real statement. The Lloyds and Bank of America PDF parsers have no regression net against real-world formatting variance. |
 | 7 | Manual end-to-end encryption test | verification | high | Sign up -> enable encryption -> import -> close the tab -> log back in -> data still readable. Then: forget the password -> recover with a code -> data still readable. This is the test the whole Phase E redesign exists to pass, and it has still never been run by a human. |
 | 8 | Deliberate break-CI test | verification | low | Push a known-bad change and confirm `.github/workflows/ci.yml` actually goes red. Never run -- CI going green has only ever been observed on passing code. |
-| 9 | MoneyMap integration | integration | high | Merging Riya's friend's MoneyMap (cash-flow/debt planner) into SpendScope as one app. Phase 0 (foundational schema + router extraction, commit `f6386c9`) is committed -- see section 6. Wave 1's parallel lanes (filling in the `money.py`/`timeutil.py`/`plaid_privacy.py`/`plaid_sync.py`/`plaid_fake.py` skeletons and new frontend pages) are running now, uncommitted, in this worktree; scope not final -- run `git status --short` for the current state before assuming anything below Phase 0 is finished. |
-| 10 | onnxruntime broken locally (VC++ redistributable) | environment | low | Local `onnxruntime` import fails because of a broken/missing Visual C++ redistributable on this machine -- this is what makes any local code path that embeds a plaintext merchant string (plaintext import, `POST /api/categorize-local`) return HTTP 500 locally (see section 6, Services). By Riya's own choice, this is deliberately NOT being fixed on this machine; CI (Linux) is unaffected and is the only place plaintext-import/categorize tests currently run green. |
+| 9 | MoneyMap integration -- Wave 3 nav wiring | integration | high | Merging Riya's friend's MoneyMap (cash-flow/debt planner) into SpendScope as one app. Phase 0 through Wave 2 (schema, pure modules, Plaid-privacy engine, `/api/plan/*` + `/api/budgets` routes, and the 5 new frontend pages) are all committed -- see section 6 and section 14. Wave 3 is in progress, uncommitted: `constants.js`'s `NAV` array has `today`/`future`/`simulate`/`accounts` added but is still **missing a `budgets` entry** -- `BudgetsPage` is wired into `App.jsx`'s render switch and reachable via the "Manage budgets" button on the Spending page, but not from the sidebar. Run `git status --short` before assuming Wave 3 is finished. |
+| 10 | onnxruntime broken locally (VC++ redistributable) | environment | low | Local `onnxruntime` import fails because of a broken/missing Visual C++ redistributable on this machine -- this is what makes any local code path that embeds a plaintext merchant string (plaintext import, `POST /api/categorize-local`) return HTTP 500 locally (see section 6, Services). By Riya's own choice, this is deliberately NOT being fixed on this machine; CI (Linux) is unaffected and is the only place plaintext-import/categorize tests currently run green. **Still unresolved as of this docs pass -- Riya's own action item.** |
+| 11 | Real Plaid access tier + real-bank PC test | verification | high | Riya's actual Plaid access tier (sandbox vs. development vs. production) is still undecided -- the whole plan-engine build so far (Wave 1/2, and the fake-client tests) has run against `PLAID_ENV=fake` fixtures, never a real bank. Both the tier decision and the actual real-bank test on Riya's own machine are outstanding, and blocked in part by item 10 above (onnxruntime). These are Riya's own action items -- do not report either as done without her confirming it. |
+| 12 | Budgets missing from sidebar NAV | frontend/nav | medium | `frontend/src/constants.js`'s `NAV` array (13 items as of this docs pass) has no `{ id: 'budgets', ... }` entry, even though `App.jsx` renders `BudgetsPage` for `page === 'budgets'` and imports it. The only way in is the "Manage budgets" button on the Spending page (`App.jsx` ~line 907, `setPage('budgets')`). Whether this is intentional (Budgets as a Spending sub-view) or a Wave-3-in-progress gap that should get its own NAV entry has not been decided -- ask Riya rather than assuming either way. |
+| 13 | `test_plaid_fake_sync.py` / `test_plan_oracle.py` not in CI | test coverage | medium | Both tests exist (Wave 1/2) and exercise real behavior (the fake-Plaid sync path; a plan-engine oracle test), but neither is wired into `.github/workflows/ci.yml` -- only the 7 pre-MoneyMap tests run there. They currently have to be run by hand against a live local backend. |
 
 ---
 
@@ -561,7 +607,7 @@ grep -n "Phase 21" frontend/src/components/CalendarPage.jsx
 ### Phase 22 fix in working tree
 ```bash
 grep -n "Phase 22" src/api.py
-# Expected: ~line 776 -- "Phase 22: A rule with no `match_value`..."
+# Expected: ~line 781 -- "Phase 22: A rule with no `match_value`..."
 
 grep -n "Phase 22" frontend/src/components/EditTransactionModal.jsx
 # Expected: ~line 70 -- "Phase 22: must write the rule in the shape the backend matcher expects"
@@ -597,7 +643,8 @@ curl -s http://127.0.0.1:8000/
 # Expected: {"status":"SpendScope API is running"}
 
 curl -s http://127.0.0.1:8000/openapi.json | python -c "import json,sys; print(len(json.load(sys.stdin)['paths']))"
-# Expected: 31
+# Expected: 41 (52 routes across api.py + routes/accounts.py + routes/plaid.py + routes/plan.py,
+# but 11 paths carry two methods each, so len(paths) undercounts routes -- see section 13)
 
 curl -s -X POST http://127.0.0.1:8000/api/categorize-local -o /dev/null -w "%{http_code}\n"
 # Expected: 401
@@ -629,8 +676,9 @@ docker exec spendscope_db psql -U spendscope -d spendscope -c "\dt" | grep plaid
 ### Route table (sanity)
 ```bash
 grep -n "^@app\." src/api.py | wc -l
-# Expected: 26 -- Phase 0 (f6386c9) extracted the other 10 into src/routes/accounts.py (4) and
-# src/routes/plaid.py (6); grep those too if you want the full 36.
+# Expected: 26 -- Phase 0 (f6386c9) extracted account CRUD/Plaid routes into src/routes/accounts.py (4)
+# and src/routes/plaid.py (6); Wave 2 (a99b4fa) added src/routes/plan.py (16). Grep those too for the
+# full 52 -- see section 13.
 ```
 
 ### Old Claude endpoints are gone
@@ -688,44 +736,44 @@ This caveat is specific to this Claude Code build/version. May be fixed in futur
 
 ## 13. Where to Look for Specifics
 
-**Backend routes table rewritten 2026-09-28** from `grep -n '^@app\.' src/api.py` + `grep -n '^@router\.' src/routes/accounts.py src/routes/plaid.py`, after Phase 0 (`f6386c9`) extracted the account CRUD and Plaid/webhook routes out of `api.py` into `src/routes/`. Same 36 routes/paths/methods as before Phase 0 -- just split across three files now. Re-run the greps before trusting this table too, and see the note in section 3 (`src/routes/` etc. added there).
+**Backend routes table rewritten 2026-09-28 (this docs pass)** from `grep -n '^@app\.' src/api.py` + `grep -n '^@router\.' src/routes/accounts.py src/routes/plaid.py src/routes/plan.py`, after Phase 0 (`f6386c9`) extracted the account CRUD and Plaid/webhook routes out of `api.py` into `src/routes/`, and Wave 2 (`a99b4fa`) added `src/routes/plan.py`. Re-run the greps before trusting this table, and see the note in section 3 (`src/routes/` etc. added there).
 
-*(36 routes across three files, but the live OpenAPI schema only reports 31 unique paths -- 5 paths carry two methods each: `GET`+`PUT /api/auth/me`, `GET`+`POST /api/category-rules`, `PATCH`+`DELETE /api/category-rules/{rule_id}`, `GET`+`POST /api/accounts`, `PATCH`+`DELETE /api/accounts/{account_id}`. Verified via `app.openapi()['paths']` in a Python shell, no DB needed.)*
+*(52 routes across four files (26 + 4 + 6 + 16), but the live OpenAPI schema only reports 41 unique paths -- 11 paths carry two methods each: `GET`+`PUT /api/auth/me`, `GET`+`POST /api/category-rules`, `PATCH`+`DELETE /api/category-rules/{rule_id}`, `GET`+`POST /api/accounts`, `PATCH`+`DELETE /api/accounts/{account_id}`, `GET`+`PUT /api/plan/settings`, `GET`+`POST /api/plan/recurring`, `PATCH`+`DELETE /api/plan/recurring/{rule_id}`, `GET`+`POST /api/plan/events`, `PATCH`+`DELETE /api/plan/events/{event_id}`, `GET`+`PUT /api/budgets`. Derived from the route-path grep above, not re-verified against a running `app.openapi()['paths']` this pass -- do that before trusting the exact number.)*
 
-### Backend routes (`src/api.py`, 903 lines, 26 routes)
+### Backend routes (`src/api.py`, 914 lines, 26 routes)
 | Line | Method | Path |
 |---|---|---|
-| 54 | GET | `/` (static string, no DB check) |
-| 59 | GET | `/health` (pings the DB with `SELECT 1`; this is what `railway.json`'s healthcheck targets) |
-| 70 | POST | `/api/auth/signup` |
-| 104 | POST | `/api/auth/login` |
-| 127 | GET | `/api/auth/me` |
-| 144 | PUT | `/api/auth/me` |
-| 167 | POST | `/api/auth/encryption-setup` |
-| 194 | POST | `/api/auth/change-password` |
-| 231 | GET | `/api/transactions` (optional auth) |
-| 266 | POST | `/api/transactions/import` |
-| 374 | helper | `_apply_txn_patch` (shared by single PATCH + batch-update) |
-| 450 | PATCH | `/api/transactions/{txn_id}` |
-| 468 | PATCH | `/api/transactions/{txn_id}/category` (legacy alias) |
-| 474 | POST | `/api/transactions/batch-update` |
-| 503 | GET | `/api/import-batches` |
-| 521 | DELETE | `/api/import-batches/{batch_id}` |
-| 537 | POST | `/api/account/wipe-data` |
-| 562 | POST | `/api/upload-csv` (requires auth -- Phase C closed finding 2.3) |
-| 602 | GET | `/api/coaching/stats` |
-| 626 | POST | `/api/categorize-local` |
-| 696 | GET | `/api/category-rules` (requires auth) |
-| 705 | POST | `/api/category-rules` (requires auth) |
-| 726 | PATCH | `/api/category-rules/{rule_id}` (was PUT; requires auth) |
-| 751 | DELETE | `/api/category-rules/{rule_id}` (requires auth) |
-| 767 | helper | `_match_rule` |
-| 799 | POST | `/api/categorize` (legacy bulk apply; requires auth) |
-| 822 | POST | `/api/upload-csv-mapped` (requires auth) |
-| 848 | POST | `/api/upload-pdf` (requires auth) |
+| 56 | GET | `/` (static string, no DB check) |
+| 61 | GET | `/health` (pings the DB with `SELECT 1`; this is what `railway.json`'s healthcheck targets) |
+| 72 | POST | `/api/auth/signup` |
+| 106 | POST | `/api/auth/login` |
+| 129 | GET | `/api/auth/me` |
+| 146 | PUT | `/api/auth/me` |
+| 169 | POST | `/api/auth/encryption-setup` |
+| 196 | POST | `/api/auth/change-password` |
+| 233 | GET | `/api/transactions` (optional auth) |
+| 268 | POST | `/api/transactions/import` |
+| 376 | helper | `_apply_txn_patch` (shared by single PATCH + batch-update) |
+| 452 | PATCH | `/api/transactions/{txn_id}` |
+| 470 | PATCH | `/api/transactions/{txn_id}/category` (legacy alias) |
+| 476 | POST | `/api/transactions/batch-update` |
+| 505 | GET | `/api/import-batches` |
+| 523 | DELETE | `/api/import-batches/{batch_id}` |
+| 539 | POST | `/api/account/wipe-data` |
+| 573 | POST | `/api/upload-csv` (requires auth -- Phase C closed finding 2.3) |
+| 613 | GET | `/api/coaching/stats` |
+| 637 | POST | `/api/categorize-local` |
+| 707 | GET | `/api/category-rules` (requires auth) |
+| 716 | POST | `/api/category-rules` (requires auth) |
+| 737 | PATCH | `/api/category-rules/{rule_id}` (was PUT; requires auth) |
+| 762 | DELETE | `/api/category-rules/{rule_id}` (requires auth) |
+| 778 | helper | `_match_rule` |
+| 810 | POST | `/api/categorize` (legacy bulk apply; requires auth) |
+| 833 | POST | `/api/upload-csv-mapped` (requires auth) |
+| 859 | POST | `/api/upload-pdf` (requires auth) |
 
-### Backend routes (`src/routes/accounts.py`, 4 routes -- extracted from `api.py` in Phase 0)
-Line count and per-route line numbers omitted -- Wave 1 is actively modifying this file (see section 6); run `grep -n "^@router\." src/routes/accounts.py` for current line numbers.
+### Backend routes (`src/routes/accounts.py`, 4 routes -- extracted from `api.py` in Phase 0, then filled in by Wave 1's BP-ACCT)
+Run `grep -n "^@router\." src/routes/accounts.py` for current line numbers -- omitted here since they shift with unrelated edits.
 | Method | Path |
 |---|---|
 | GET | `/api/accounts` |
@@ -733,8 +781,8 @@ Line count and per-route line numbers omitted -- Wave 1 is actively modifying th
 | PATCH | `/api/accounts/{account_id}` |
 | DELETE | `/api/accounts/{account_id}` |
 
-### Backend routes (`src/routes/plaid.py`, 6 routes -- extracted from `api.py` in Phase 0)
-Line count and per-route line numbers omitted -- Wave 1 is actively modifying this file (see section 6); run `grep -n "^@router\." src/routes/plaid.py` for current line numbers.
+### Backend routes (`src/routes/plaid.py`, 6 routes -- extracted from `api.py` in Phase 0, then Wave 1's BP-ROUTES delegated sync to `src/plaid_sync.py`)
+Run `grep -n "^@router\." src/routes/plaid.py` for current line numbers -- omitted here since they shift with unrelated edits.
 | Method | Path |
 |---|---|
 | POST | `/api/plaid/link-token` |
@@ -743,6 +791,27 @@ Line count and per-route line numbers omitted -- Wave 1 is actively modifying th
 | GET | `/api/plaid/items` |
 | DELETE | `/api/plaid/items/{item_id}` |
 | POST | `/webhooks/plaid` |
+
+### Backend routes (`src/routes/plan.py`, 374 lines, 16 routes -- new in Wave 2, LP-SVC, commit `a99b4fa`)
+The FROZEN JSON CONTRACT the 5 Wave-1 frontend pages (Today/Future/Simulate/Accounts/Budgets) were built against. HTTP/CRUD lives here; anything touching a pure module (`finance`/`cash`/`simulator`/`recurrence`) or needing money-safe JSON conversion goes through `src/plan_service.py` instead (see section 14).
+| Line | Method | Path |
+|---|---|---|
+| 56 | GET | `/api/plan/today` |
+| 65 | GET | `/api/plan/forecast` (query param `days`, default 30, 1-365) |
+| 74 | POST | `/api/plan/simulate` |
+| 84 | POST | `/api/plan/overspend` |
+| 96 | GET | `/api/plan/settings` |
+| 106 | PUT | `/api/plan/settings` |
+| 118 | GET | `/api/plan/recurring` |
+| 128 | POST | `/api/plan/recurring` |
+| 168 | PATCH | `/api/plan/recurring/{rule_id}` (also how the frontend confirms/dismisses -- `{"status": "confirmed"}` / `{"status": "dismissed"}`, no separate confirm/dismiss endpoints) |
+| 211 | DELETE | `/api/plan/recurring/{rule_id}` (a `source="detected"` row is dismissed in place instead of hard-deleted, so it stays suppressed) |
+| 234 | GET | `/api/plan/events` |
+| 241 | POST | `/api/plan/events` |
+| 280 | PATCH | `/api/plan/events/{event_id}` |
+| 319 | DELETE | `/api/plan/events/{event_id}` |
+| 333 | GET | `/api/budgets` |
+| 340 | PUT | `/api/budgets` (full-replace semantics -- deletes all of the user's budget rows, then re-inserts `items`) |
 
 **Still gone:** `GET /api/summary` and `POST /api/auth/verify-recovery` don't exist anywhere in `src/api.py` or `src/routes/` -- neither appears in any of the greps above. If something in this doc still references either, treat that reference as stale.
 
@@ -760,11 +829,11 @@ Line count and per-route line numbers omitted -- Wave 1 is actively modifying th
 
 ### Categorization
 - Frontend entry: `App.jsx::localCategorizeAndImport` -- called from CSV import, PDF import, column mapper, fallback paths
-- Backend entry: `POST /api/categorize-local` (`src/api.py:626`)
+- Backend entry: `POST /api/categorize-local` (`src/api.py:637`)
 - Model: `src/categorize_local.py::_get_model` (lazy fastembed singleton)
 - KNN: `src/categorize_local.py::categorize_by_neighbors` -- cosine via `<=>`, filtered to `category_source='manual'`
 - Starter pack: `src/starter_rules.py::STARTER_RULES` (OUT-only)
-- Rule matcher: `src/api.py::_match_rule` (`src/api.py:767`)
+- Rule matcher: `src/api.py::_match_rule` (`src/api.py:778`)
 
 ### Where to extend
 - **Add a backend endpoint:** append in `src/api.py`, mirror an existing auth-protected route (use `Depends(get_current_user)` pattern).
@@ -789,6 +858,76 @@ Line count and per-route line numbers omitted -- Wave 1 is actively modifying th
 ### Setup docs (project-specific conventions, design decisions 1-16)
 - `setup/kt.md` -- read for design decisions 7-16 in particular (one-account-per-plaid-account, idempotent ALTER strategy, KNN learns only from manual, direction-aware throughout, starter pack OUT-only, embedding model rationale, stats coach replaces LLM coach, zero outbound calls).
 - `setup/structure.md` -- file reference + chronological changelog. Update this and `kt.md` after every shipped phase.
+
+---
+
+## 14. MoneyMap Integration -- Plan/Forecast Engine (Phase 0 through Wave 3)
+
+This section describes the MoneyMap integration (merging Riya's friend's cash-flow/debt planner into SpendScope as one app) as it actually exists in the repo as of this docs pass -- read the code cited below rather than trusting this prose if the two ever disagree. Phase 0, Wave 1 and Wave 2 are committed (see section 6 for the exact commit list); Wave 3 (frontend nav wiring) is in progress, uncommitted.
+
+### 14.1 Plaid privacy engine (`src/plaid_privacy.py`, Wave 1, 51 lines)
+
+**Riya's decision (2026-09-26), stated in the module's own docstring: Plaid-synced merchant/description text is READABLE but redacted, not client-side encrypted like uploaded rows.** This is a deliberate, disclosed product tradeoff, not an oversight -- Phase E's envelope encryption (client-side DEK, server sees only ciphertext) covers uploaded transactions; Plaid-synced transactions do not get that guarantee, because the server has to read them to sync/display/forecast against a live bank feed in the first place. Four concrete mechanisms implement "redacted":
+- `redact_digits(text)` -- regex `\d{4,}` (4+ consecutive digits) replaced with a fixed `"****"` placeholder, long enough to catch account/card numbers without eating short numbers like "Store #42".
+- `opaque_handle(raw_id)` -- SHA-256 hex digest of a Plaid id, truncated to 16 chars, for logs/telemetry. Never reversible back to Plaid's real account/item id.
+- `error_copy_for(error_code)` -- maps known Plaid `error_code`s (`ITEM_LOGIN_REQUIRED`, `INSTITUTION_DOWN`, `RATE_LIMIT_EXCEEDED`, etc.) to fixed, non-leaking copy via `PLAID_ERROR_COPY`; falls back to a generic `DEFAULT_ERROR_COPY`. Plaid's own `error_message` is never surfaced to the client.
+- `generate_display_label(kind, index)` -- e.g. `"checking", 1` -> `"Checking 1"`. Used instead of Plaid's `official_name`/`mask`, neither of which ever leaves the server.
+
+The frontend's `DataVisibilityNote.jsx` (20 lines, Wave 1) is the FROZEN DISCLOSURE COMPONENT that states this to the user directly, per data source, on the Today and Accounts pages: Plaid rows get "Merchant and description text is redacted, but it is NOT end-to-end encrypted -- these rows are readable on the server"; uploaded rows get "end-to-end encrypted (merchant and description only) -- the server cannot read them." `TodayPage.jsx` picks which copy to show via `(!accounts || accounts.length === 0 || accounts.some(a => a.is_plaid)) ? 'plaid' : 'upload'` -- note that with zero accounts it defaults to the Plaid (less-protective) copy.
+
+### 14.2 Plan/forecast engine (pure modules, Wave 1, `src/plan_types.py` is the frozen contract)
+
+Every pure module below imports ONLY `src.plan_types` + stdlib -- no SQLAlchemy, no FastAPI. `src/plan_service.py` (Wave 2, 558 lines) is the sole place ORM rows become these dataclasses and back; every money value crossing the JSON boundary goes through `src/money.py` (`parse_amount` in, `quantize`/`to_json_number` out) rather than a bare `float()`/`str(Decimal)`.
+
+- **`src/finance.py` (201 lines, LP-FIN)** -- day-by-day cash forecast engine, ported from MoneyMap's `lib/finance.ts`. `build_forecast()` walks each day in the horizon, applies recurring-rule and one-off-event occurrences, and computes a **safe-to-spend guide**: if there's a next income date, it's `(balance - protected bills due before that income - reserve buffer) / days until income`; otherwise it's the remaining balance spread over the remaining horizon. Each day is flagged `good`/`watch`/`danger` by whether the closing balance is negative, below the reserve buffer, or above it. `summarize_forecast()` reduces a forecast to `safe_to_spend_today`/`lowest_point`/`overall_risk`.
+- **`src/cash.py` (54 lines, LP-CASH)** -- `aggregate_cash()` sums every `counts_as_cash` account's balance **per currency, never across currencies** (a `dict[currency, BankCash]`, not one number). Fixes a real MoneyMap bug: `cash.ts` defaulted a missing `balance_as_of` to `0` (silently treating an unknown-freshness balance as an epoch-0 one); here a missing `balance_as_of` is left `None` and the account id is reported in `BankCash.missing_as_of` instead, so callers can surface "this balance might be stale."
+- **`src/simulator.py` (345 lines, LP-SIM)** -- debt payoff / lump-sum / friend-loan simulator (avalanche = highest APR first, snowball = smallest balance first, custom = caller's own order). Ported from MoneyMap's `lib/simulator.ts` but NOT a faithful port -- its own docstring documents 4 real bugs found in `simulator.ts` and fixed here: (1) it only skipped a debt from extra-payment allocation when payment was exactly 0, so negative/credit balances broke allocation; (2) its "protected bills" logic only ever excluded rent, not every confirmed protected bill; (3) overdue handling never applied to a projected (not-yet-posted) recurring bill; (4) it relied on JS's `Math.round` rounding-toward-+infinity behavior for negatives, which Python doesn't replicate, so plain `Decimal` HALF_UP quantization is used instead. `simulate()` always runs a zero-extra-payment baseline alongside the requested scenario so the UI can show interest/months saved.
+- **`src/recurrence.py` (457 lines, LP-REC)** -- the ONE recurring/subscription cadence classifier in the codebase (`src/stats_coach.py`'s `_detect_recurring_subs` is now a thin adapter over `find_recurring_candidates()` here, so there's never a second, disagreeing detector). Two independent gates before a same-merchant/same-direction group counts as "real" recurring: (1) cadence -- gap coefficient-of-variation must be tight, distinguishing weekly/biweekly/four_weekly/semimonthly/monthly_fixed_day from "irregular"; (2) amount -- the typical amount must sit under a per-currency, per-direction P90 threshold computed from the user's own transaction history (deliberately not a fixed constant, since 100 GBP and 100 INR aren't the same bar). `compute_next_date()` derives the next occurrence purely from cadence + anchor fields -- `next_date` is never stored anywhere by design. `find_new_candidates()` also auto-settles a renamed merchant against an existing confirmed rule (close amount + predicted date) so a bill that changed its display name doesn't get re-suggested as new.
+- **`src/refresh.py` (40 lines, part of LP-CASH)** -- pure refresh-cooldown/give-up/cached-sync timing, ported from MoneyMap's `lib/refresh.ts`. No networking; the actual Plaid HTTP calls live in `src/plaid_sync.py`.
+
+**Confirm-once-then-automatic recurring detection (Riya's decision, stated in `plan_models.RecurringRule`'s docstring):** a detected candidate starts life as `status="suggested"` and sits in the Today page's review queue; the user confirms or dismisses it once (`PATCH /api/plan/recurring/{id}` with `{"status": "confirmed"}` or `{"status": "dismissed"}`); only `confirmed` rows ever feed the forecast, and `dismissed` rows are remembered and never re-suggested (`find_new_candidates` excludes both by label). There is no ongoing per-occurrence confirmation after that.
+
+**Multi-currency cash, never summed:** both `plan_models.PlanBalance` (composite PK `user_id, currency`) and `cash.aggregate_cash()`'s return shape (`dict[currency, BankCash]`) enforce this at the schema and pure-module level -- there is no code path that adds a GBP balance to a USD balance.
+
+### 14.3 API surface -- new routes (Wave 2, `src/routes/plan.py`, 374 lines, 16 routes)
+
+Full per-route table with line numbers is in section 13. Summary: **10 distinct paths, 16 routes**, all under `/api/plan/*` plus `/api/budgets` (budgets got zero server routes before Wave 2 -- it was 100% localStorage-driven; that gap was found during Phase 0 reconciliation).
+- Forecast/simulate: `GET /api/plan/today`, `GET /api/plan/forecast`, `POST /api/plan/simulate`, `POST /api/plan/overspend`
+- Settings: `GET`/`PUT /api/plan/settings`
+- Recurring rules: `GET`/`POST /api/plan/recurring`, `PATCH`/`DELETE /api/plan/recurring/{rule_id}`
+- One-off plan events: `GET`/`POST /api/plan/events`, `PATCH`/`DELETE /api/plan/events/{event_id}`
+- Budgets: `GET`/`PUT /api/budgets` (full-replace on PUT)
+
+Backend total is now **52 routes across four files** (`api.py` 26 + `routes/accounts.py` 4 + `routes/plaid.py` 6 + `routes/plan.py` 16), **41 unique paths** (11 of them carrying two methods each). See section 13 for how that's derived and the caveat about re-verifying it live.
+
+### 14.4 The 5 new frontend pages, and where they actually live in navigation (Wave 1 built them, Wave 3 is wiring them in -- uncommitted)
+
+All 5 talk to the routes above via `frontend/src/lib/planApi.js` (62 lines, the FROZEN JSON CONTRACT client) and share UI primitives from `frontend/src/components/plan/primitives.jsx` (73 lines: `PlanCard`, `RiskBadge`, `MoneyStat`, `SectionHeader`, `EmptyState`, `ConfirmDismissRow`).
+
+| Page | File | Lines | What it does | NAV / reachability as of this docs pass |
+|---|---|---|---|---|
+| Today | `TodayPage.jsx` | 98 | Safe-to-spend-today figure, risk badge, balance today, lowest point, next income, recurring confirm/dismiss queue | **In sidebar NAV** (`constants.js`, id `today`) |
+| Future | `FuturePage.jsx` | 175 | Day-by-day forecast, 7/14/30/60/90-day range selector, bar strip + list, "what if I overspend today" what-if simulator (`POST /api/plan/overspend`) | **In sidebar NAV** (id `future`) |
+| Simulate | `SimulatePage.jsx` | 169 | Debt payoff scenario -- avalanche/snowball strategy, extra monthly payment, one-time lump sum with a target-debt picker | **In sidebar NAV** (id `simulate`) |
+| Accounts | `AccountsPage.jsx` | 276 | Every account across every bank, grouped and totaled per currency (never summed across currencies); manual debt-account (credit card/loan/BNPL/friend loan) add/edit; Plaid manual-sync button | **In sidebar NAV** (id `accounts`) -- distinct from the older `AccountsListPanel.jsx` (rename/delete on the Upload page) and `AccountCardsRow.jsx` (Dashboard tiles), which are unchanged |
+| Budgets | `BudgetsPage.jsx` | 104 | Server-hydrated category budgets via `/api/budgets`, full-replace on save | **NOT in sidebar NAV as of this docs pass.** `App.jsx` imports it and renders it for `page === 'budgets'`, but `constants.js`'s `NAV` array has no `{ id: 'budgets', ... }` entry. The only way to reach it today is the "Manage budgets" button on the Spending page (`App.jsx` ~line 907, `setPage('budgets')`). Whether that's the intended final design (Budgets as a Spending sub-view) or a Wave-3-still-in-progress gap is undecided -- see section 10, item 12. |
+
+`constants.js`'s `NAV` array is **13 items** as of this docs pass: `overview`, `today`, `future`, `simulate`, `spending`, `merchants`, `transactions`, `calendar`, `insights`, `coach`, `rules`, `accounts`, `upload` (`budgets` is absent -- see above). Verify with `grep -c "id: '" frontend/src/constants.js` before trusting this number, since Wave 3 is still uncommitted.
+
+### 14.5 Fake-Plaid-client testing mode (`PLAID_ENV=fake`, Wave 1 BP-SVC)
+
+`src/plaid_fake.py` (108 lines) implements a `FakePlaidClient` behind the same `PlaidClientProtocol` the real `src/plaid_service.py` client uses, selected by `src/plaid_fake.get_client()` when `os.environ["PLAID_ENV"]` (case-insensitive) is exactly `"fake"`. It exists because **Riya's own Plaid access tier was undecided** ("i dont know yet need to check", per the module's docstring) -- gating the whole Plaid surface behind this fake client meant every plan-engine route, the sync orchestration, and the tests could be built and exercised without waiting on that decision. Scenario selection rides the `public_token`/`access_token` string (e.g. `"fake-public-token:debt-heavy-user"` picks `data/plaid_fixtures/debt-heavy-user.json`); two fixtures exist today (`simple-checking`, `debt-heavy-user`). Two things worth knowing before relying on this mode:
+- `.env`/`.env.example` default to `PLAID_ENV=sandbox`, not `fake` -- it has to be set explicitly.
+- `src.plaid_service.get_plaid_client()` itself raises `Invalid PLAID_ENV: fake` if called with `PLAID_ENV=fake`, since `"fake"` isn't `sandbox|development|production`. That's expected -- the fake client is chosen one layer up, in `src/plaid_fake.get_client()`, before `plaid_service`'s function is ever reached. `tests/test_plaid_fake_sync.py`'s module docstring documents a real gotcha here: the value has to be in effect in the **server process** at request time (which re-reads `.env` via `load_dotenv(override=True)` at import), not just in the test process's own environment.
+
+### 14.6 What is and isn't verified
+
+**Nothing in this integration has been tested against a real bank.** Every test so far (`tests/test_plaid_fake_sync.py`, `tests/test_plan_oracle.py`, and manual exercising) runs against `PLAID_ENV=fake` fixtures, not Plaid Sandbox/Development/Production with a real institution. Outstanding, and explicitly Riya's own action items, not something to mark done on her behalf:
+- The onnxruntime / Visual C++ redistributable blocker on this machine (section 6, section 10 item 10) -- unresolved.
+- Riya's real Plaid access tier -- still undecided (section 10 item 11).
+- The actual real-bank PC test, on Riya's own machine, with a real institution -- not run (section 10 item 11).
+- `tests/test_plaid_fake_sync.py` and `tests/test_plan_oracle.py` are not wired into CI yet (section 6, section 10 item 13).
+- Wave 3's NAV wiring is uncommitted and the Budgets NAV gap (14.4) is unresolved.
 
 ---
 

@@ -12,6 +12,8 @@ from src.database import get_db
 from src.models import User, Account, ImportBatch, Transaction as TxnModel, PlaidItem
 from src.auth import get_current_user
 from src import plaid_service as ps
+from src import plaid_fake
+from src.plaid_sync import sync_item as _sync_plaid_item_impl
 
 router = APIRouter()
 
@@ -19,145 +21,15 @@ router = APIRouter()
 async def _sync_plaid_item(plaid_item_id: uuid.UUID, user_id: uuid.UUID, db) -> dict:
     """Pull new/modified/removed transactions from Plaid for one Item.
 
-    Phase 10C: routes transactions to one Account row per Plaid account_id
-    (e.g. checking + credit card from same bank get separate Account rows).
+    Thin wrapper delegating to src.plaid_sync.sync_item (Wave 1 BP-SVC lane): looks up
+    the PlaidItem row and hands it off, keeping this function's signature and return
+    shape ({added, modified, removed, accounts}) unchanged for existing call sites below.
     """
     item = await db.get(PlaidItem, plaid_item_id)
     if item is None:
         raise HTTPException(404, "PlaidItem not found")
 
-    access_token = ps.decrypt_token(item.access_token_encrypted)
-
-    all_added, all_modified, all_removed = [], [], []
-    plaid_accounts_latest: dict[str, dict] = {}  # plaid_account_id -> account dict (last seen wins)
-    cursor = item.sync_cursor
-    iterations = 0
-    while True:
-        iterations += 1
-        if iterations > 20:
-            break  # safety cap
-        result = ps.sync_transactions(access_token, cursor=cursor)
-        all_added.extend(result["added"])
-        all_modified.extend(result["modified"])
-        all_removed.extend(result["removed"])
-        for a in result.get("accounts", []) or []:
-            aid = a.get("account_id")
-            if aid:
-                plaid_accounts_latest[aid] = a
-        cursor = result["next_cursor"]
-        if not result["has_more"]:
-            break
-
-    # Look up user currency once -- single currency per user (Phase 10 rule)
-    user = await db.get(User, user_id)
-    user_currency = (user.currency if user else None) or "USD"
-
-    # Get-or-create one Account per Plaid account_id
-    account_id_map: dict[str, uuid.UUID] = {}  # plaid_account_id -> Account.id
-    for plaid_acc_id, acc in plaid_accounts_latest.items():
-        balances = acc.get("balances") or {}
-        # Try existing per-account row first
-        r = await db.execute(select(Account).where(Account.plaid_account_id == plaid_acc_id))
-        account = r.scalar_one_or_none()
-        if account is None:
-            display_name = acc.get("name") or acc.get("official_name") or item.institution_name or "Bank Account"
-            account = Account(
-                user_id=user_id,
-                name=display_name,
-                bank_name=item.institution_name or "",
-                account_type=acc.get("type") or "depository",
-                currency=user_currency,
-                plaid_account_id=plaid_acc_id,
-                plaid_item_id=item.id,
-                mask=acc.get("mask"),
-                subtype=acc.get("subtype"),
-                credit_limit=balances.get("limit"),
-                current_balance=balances.get("current"),
-                available_balance=balances.get("available"),
-                last_synced_at=_dt.now(_tz.utc),
-            )
-            db.add(account)
-            await db.flush()
-        else:
-            # Refresh Plaid-sourced fields. Leave user-editable fields (due_day, name) alone.
-            account.mask = acc.get("mask") or account.mask
-            account.subtype = acc.get("subtype") or account.subtype
-            account.credit_limit = balances.get("limit") if balances.get("limit") is not None else account.credit_limit
-            account.current_balance = balances.get("current") if balances.get("current") is not None else account.current_balance
-            account.available_balance = balances.get("available") if balances.get("available") is not None else account.available_balance
-            account.plaid_item_id = item.id
-            account.last_synced_at = _dt.now(_tz.utc)
-        account_id_map[plaid_acc_id] = account.id
-
-    # Fallback Account if a transaction has no matching plaid_account_id (rare)
-    fallback_account_id = next(iter(account_id_map.values()), None)
-    if fallback_account_id is None:
-        # No accounts returned by sync (very first run with no transactions yet) -- create a stub
-        stub = Account(
-            user_id=user_id,
-            name=item.institution_name or "Bank Account",
-            bank_name=item.institution_name or "",
-            currency=user_currency,
-            plaid_item_id=item.id,
-        )
-        db.add(stub)
-        await db.flush()
-        fallback_account_id = stub.id
-
-    sp_added = [ps.plaid_txn_to_spendscope(t) for t in all_added]
-
-    # Group transactions by target Account so each gets its own ImportBatch
-    by_account: dict[uuid.UUID, list[dict]] = {}
-    for t in sp_added:
-        target_id = account_id_map.get(t.get("_plaid_account_id"), fallback_account_id)
-        by_account.setdefault(target_id, []).append(t)
-
-    inserted = 0
-    for acct_id, txns in by_account.items():
-        if not txns:
-            continue
-        batch = ImportBatch(
-            user_id=user_id,
-            account_id=acct_id,
-            plaid_item_id=item.id,
-            source_filename=f"Plaid: {item.institution_name or 'Bank'}",
-            source_type="plaid",
-            bank_name=item.institution_name or "",
-            transaction_count=len(txns),
-            status="confirmed",
-        )
-        db.add(batch)
-        await db.flush()
-        for t in txns:
-            try:
-                tx_date = date_type.fromisoformat(t["date_iso"])
-            except (ValueError, KeyError):
-                continue
-            txn = TxnModel(
-                import_batch_id=batch.id,
-                account_id=acct_id,
-                user_id=user_id,
-                date=tx_date,
-                description=t.get("description", ""),
-                merchant=t.get("merchant", ""),
-                category=t.get("category", "Other"),
-                type=t.get("type", ""),
-                amount=round(float(t.get("amount", 0)), 2),
-                balance=None,
-                direction=t.get("direction", "OUT"),
-                is_redacted=False,
-                category_source="plaid",
-            )
-            db.add(txn)
-            inserted += 1
-
-    # modified/removed: defer to v2 (need plaid_transaction_id stored on Transaction first)
-
-    item.sync_cursor = cursor
-    item.last_synced_at = _dt.now(_tz.utc)
-    await db.commit()
-
-    return {"added": inserted, "modified": len(all_modified), "removed": len(all_removed), "accounts": len(account_id_map)}
+    return await _sync_plaid_item_impl(item, user_id, db, client=plaid_fake.get_client())
 
 
 @router.post("/api/plaid/link-token")

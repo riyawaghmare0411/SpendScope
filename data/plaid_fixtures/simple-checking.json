@@ -1,0 +1,187 @@
+{
+  "accounts": [
+    {
+      "account_id": "acc-simple-checking-checking",
+      "name": "Everyday Checking",
+      "official_name": "SpendScope Bank Everyday Checking",
+      "type": "depository",
+      "subtype": "checking",
+      "mask": "1234",
+      "balances": {
+        "available": 2450.32,
+        "current": 2450.32,
+        "limit": null,
+        "iso_currency_code": "USD"
+      }
+    }
+  ],
+  "added": [
+    {
+      "transaction_id": "sc-txn-001",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-01",
+      "name": "Acme Corp Payroll",
+      "merchant_name": "Acme Corp",
+      "amount": -3200.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "INCOME", "detailed": "INCOME_WAGES", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-002",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-02",
+      "name": "Riverside Apartments Rent",
+      "merchant_name": "Riverside Apartments",
+      "amount": 1400.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "RENT_AND_UTILITIES", "detailed": "RENT_AND_UTILITIES_RENT", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-003",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-04",
+      "name": "TRADER JOE'S #042",
+      "merchant_name": "Trader Joe's",
+      "amount": 86.42,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "FOOD_AND_DRINK", "detailed": "FOOD_AND_DRINK_GROCERIES", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-004",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-06",
+      "name": "Blue Bottle Coffee",
+      "merchant_name": "Blue Bottle Coffee",
+      "amount": 5.75,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "FOOD_AND_DRINK", "detailed": "FOOD_AND_DRINK_COFFEE", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-005",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-08",
+      "name": "Equinox Fitness",
+      "merchant_name": "Equinox",
+      "amount": 45.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "PERSONAL_CARE", "detailed": "PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-006",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-10",
+      "name": "City Power & Light",
+      "merchant_name": "City Power & Light",
+      "amount": 120.55,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "RENT_AND_UTILITIES", "detailed": "RENT_AND_UTILITIES_GAS_AND_ELECTRICITY", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-007",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-14",
+      "name": "Olive Garden 8842",
+      "merchant_name": "Olive Garden",
+      "amount": 62.10,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "FOOD_AND_DRINK", "detailed": "FOOD_AND_DRINK_RESTAURANT", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-008",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-18",
+      "name": "Amazon.com*AB12CD3",
+      "merchant_name": "Amazon",
+      "amount": 54.99,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "GENERAL_MERCHANDISE", "detailed": "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-009",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-08-21",
+      "name": "Uber Trip",
+      "merchant_name": "Uber",
+      "amount": 18.40,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "TRANSPORTATION", "detailed": "TRANSPORTATION_TAXIS_AND_RIDE_SHARES", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-010",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-09-01",
+      "name": "Acme Corp Payroll",
+      "merchant_name": "Acme Corp",
+      "amount": -3200.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "INCOME", "detailed": "INCOME_WAGES", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-011",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-09-02",
+      "name": "Riverside Apartments Rent",
+      "merchant_name": "Riverside Apartments",
+      "amount": 1400.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "RENT_AND_UTILITIES", "detailed": "RENT_AND_UTILITIES_RENT", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-012",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-09-05",
+      "name": "TRADER JOE'S #042",
+      "merchant_name": "Trader Joe's",
+      "amount": 91.20,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "FOOD_AND_DRINK", "detailed": "FOOD_AND_DRINK_GROCERIES", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-013",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-09-09",
+      "name": "Blue Bottle Coffee",
+      "merchant_name": "Blue Bottle Coffee",
+      "amount": 6.25,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "FOOD_AND_DRINK", "detailed": "FOOD_AND_DRINK_COFFEE", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-014",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-09-12",
+      "name": "Netflix.com",
+      "merchant_name": "Netflix",
+      "amount": 15.99,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "ENTERTAINMENT", "detailed": "ENTERTAINMENT_TV_AND_MOVIES", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "sc-txn-015",
+      "account_id": "acc-simple-checking-checking",
+      "date": "2026-09-20",
+      "name": "Chipotle 3391",
+      "merchant_name": "Chipotle",
+      "amount": 47.85,
+      "pending": true,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "FOOD_AND_DRINK", "detailed": "FOOD_AND_DRINK_FAST_FOOD", "confidence_level": "HIGH"}
+    }
+  ],
+  "modified": [],
+  "removed": []
+}

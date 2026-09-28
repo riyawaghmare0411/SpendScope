@@ -1,0 +1,150 @@
+{
+  "accounts": [
+    {
+      "account_id": "acc-debt-heavy-checking",
+      "name": "Primary Checking",
+      "official_name": "SpendScope Bank Primary Checking",
+      "type": "depository",
+      "subtype": "checking",
+      "mask": "5566",
+      "balances": {
+        "available": 340.18,
+        "current": 340.18,
+        "limit": null,
+        "iso_currency_code": "USD"
+      }
+    },
+    {
+      "account_id": "acc-debt-heavy-credit",
+      "name": "Rewards Credit Card",
+      "official_name": "SpendScope Bank Rewards Credit Card",
+      "type": "credit",
+      "subtype": "credit card",
+      "mask": "9911",
+      "balances": {
+        "available": 179.45,
+        "current": 4820.55,
+        "limit": 5000.00,
+        "iso_currency_code": "USD"
+      },
+      "apr_bps": 2399,
+      "minimum_payment": 145.00,
+      "statement_balance": 4820.55,
+      "next_due_date": "2026-10-15"
+    }
+  ],
+  "added": [
+    {
+      "transaction_id": "dh-txn-001",
+      "account_id": "acc-debt-heavy-checking",
+      "date": "2026-08-01",
+      "name": "Globex Inc Payroll",
+      "merchant_name": "Globex Inc",
+      "amount": -2800.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "INCOME", "detailed": "INCOME_WAGES", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-002",
+      "account_id": "acc-debt-heavy-checking",
+      "date": "2026-08-03",
+      "name": "Maple Court Apartments",
+      "merchant_name": "Maple Court Apartments",
+      "amount": 1300.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "RENT_AND_UTILITIES", "detailed": "RENT_AND_UTILITIES_RENT", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-003",
+      "account_id": "acc-debt-heavy-credit",
+      "date": "2026-08-05",
+      "name": "BEST BUY 00234",
+      "merchant_name": "Best Buy",
+      "amount": 220.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "GENERAL_MERCHANDISE", "detailed": "GENERAL_MERCHANDISE_ELECTRONICS", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-004",
+      "account_id": "acc-debt-heavy-credit",
+      "date": "2026-08-12",
+      "name": "Shell Gas Station",
+      "merchant_name": "Shell",
+      "amount": 65.30,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "TRANSPORTATION", "detailed": "TRANSPORTATION_GAS", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-005",
+      "account_id": "acc-debt-heavy-credit",
+      "date": "2026-08-20",
+      "name": "Rewards Card Payment",
+      "merchant_name": "Rewards Credit Card",
+      "amount": -400.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "LOAN_PAYMENTS", "detailed": "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-006",
+      "account_id": "acc-debt-heavy-checking",
+      "date": "2026-09-01",
+      "name": "Globex Inc Payroll",
+      "merchant_name": "Globex Inc",
+      "amount": -2800.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "INCOME", "detailed": "INCOME_WAGES", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-007",
+      "account_id": "acc-debt-heavy-checking",
+      "date": "2026-09-03",
+      "name": "Maple Court Apartments",
+      "merchant_name": "Maple Court Apartments",
+      "amount": 1300.00,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "RENT_AND_UTILITIES", "detailed": "RENT_AND_UTILITIES_RENT", "confidence_level": "VERY_HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-008",
+      "account_id": "acc-debt-heavy-credit",
+      "date": "2026-09-02",
+      "name": "BEST BUY 00234",
+      "merchant_name": "Best Buy",
+      "amount": 310.75,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "GENERAL_MERCHANDISE", "detailed": "GENERAL_MERCHANDISE_ELECTRONICS", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-009",
+      "account_id": "acc-debt-heavy-credit",
+      "date": "2026-09-10",
+      "name": "Shell Gas Station",
+      "merchant_name": "Shell",
+      "amount": 58.20,
+      "pending": false,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "TRANSPORTATION", "detailed": "TRANSPORTATION_GAS", "confidence_level": "HIGH"}
+    },
+    {
+      "transaction_id": "dh-txn-010",
+      "account_id": "acc-debt-heavy-credit",
+      "date": "2026-09-18",
+      "name": "Delta Air Lines",
+      "merchant_name": "Delta Air Lines",
+      "amount": 150.00,
+      "pending": true,
+      "iso_currency_code": "USD",
+      "personal_finance_category": {"primary": "TRAVEL", "detailed": "TRAVEL_FLIGHTS", "confidence_level": "HIGH"}
+    }
+  ],
+  "modified": [],
+  "removed": []
+}

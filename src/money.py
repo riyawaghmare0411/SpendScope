@@ -9,7 +9,7 @@ Fixes carried from the MoneyMap audit:
   (400), never a silent round to 200.
 """
 
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Union
 
 # Exponent (decimal places) per currency. Extend as new currencies are onboarded;
@@ -29,10 +29,17 @@ def currency_exponent(currency: str) -> int:
 
 def parse_amount(value: Union[str, int, float, Decimal], currency: str) -> Decimal:
     """Parse a wire value into an exact Decimal. 0 is a valid amount, not an absent one.
-    Raises MoneyValidationError if value has more decimal places than the currency allows."""
-    if value is None:
+    Raises MoneyValidationError for anything that isn't a genuine finite amount: missing,
+    non-numeric ("abc", ""), non-finite (NaN/Infinity), a bool, or more decimal places than
+    the currency allows -- every case is a client-input problem (400), never a crash (500)."""
+    if value is None or isinstance(value, bool):
         raise MoneyValidationError(f"Amount is required for {currency}")
-    amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    try:
+        amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        raise MoneyValidationError(f"{value!r} is not a valid amount for {currency}")
+    if not amount.is_finite():
+        raise MoneyValidationError(f"{value!r} is not a valid amount for {currency}")
     exponent = currency_exponent(currency)
     decimal_places = -amount.as_tuple().exponent
     if decimal_places > exponent:

@@ -40,8 +40,10 @@ app.add_middleware(
 
 from src.routes.accounts import router as accounts_router
 from src.routes.plaid import router as plaid_router
+from src.routes.plan import router as plan_router
 app.include_router(accounts_router)
 app.include_router(plaid_router)
+app.include_router(plan_router)
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "processed"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -539,17 +541,26 @@ async def wipe_user_data(current_user=Depends(get_current_user), db=Depends(get_
     """Hard-delete every transaction, batch, account, plaid item, rule, budget for the
     current user. The User row + auth stay intact. Irreversible. (Phase 10A)"""
     from sqlalchemy import delete as sa_delete
+    from src import plan_models
     user_id = uuid.UUID(current_user["user_id"])
 
-    # FK-safe order: rows that reference others first.
+    # FK-safe order: rows that reference others first. Phase 0 (MoneyMap integration) adds
+    # the plan-engine tables: PlanEvent/BalanceUpdate/RecurringRule reference accounts (SET
+    # NULL/CASCADE) so they go first; PlanBalance/PlanSettings reference only the user row
+    # so they can go last, alongside the rest of the user-only tables.
     counts = {}
     for model, key in [
+        (plan_models.PlanEvent, "plan_events"),
+        (plan_models.BalanceUpdate, "balance_updates"),
+        (plan_models.RecurringRule, "recurring_rules"),
         (TxnModel, "transactions"),
         (CategoryRule, "rules"),
         (Budget, "budgets"),
         (ImportBatch, "batches"),
         (Account, "accounts"),
         (PlaidItem, "plaid_items"),
+        (plan_models.PlanBalance, "plan_balances"),
+        (plan_models.PlanSettings, "plan_settings"),
     ]:
         r = await db.execute(sa_delete(model).where(model.user_id == user_id))
         counts[key] = r.rowcount or 0

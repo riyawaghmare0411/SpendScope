@@ -19,6 +19,7 @@ import UploadPage from './components/UploadPage'
 import Sidebar from './components/Sidebar'
 import ProfileModal from './components/ProfileModal'
 import EncryptionSettings from './components/EncryptionSettings'
+import * as planApi from './lib/planApi'
 
 // ========== MAIN APP ==========
 function App() {
@@ -29,6 +30,8 @@ function App() {
   const [uploadStatus, setUploadStatus] = useState(null), [savingsReduction, setSavingsReduction] = useState(25), [showProfile, setShowProfile] = useState(false), [showEncryption, setShowEncryption] = useState(false)
   const [budgets, setBudgets] = useState(() => JSON.parse(localStorage.getItem('spendscope_budgets') || '{}')), [editingBudget, setEditingBudget] = useState(null), [budgetInputVal, setBudgetInputVal] = useState('')
   const [accounts, setAccounts] = useState(() => JSON.parse(localStorage.getItem('spendscope_accounts') || '[]')), [activeAccount, setActiveAccount] = useState('All'), [uploadAccountName, setUploadAccountName] = useState('')
+  // Recurring items (planApi.getRecurring) -- confirmed ones feed subscriptions/subPredictions/totalSubCost below.
+  const [recurringItems, setRecurringItems] = useState([])
   const [expandedMerchant, setExpandedMerchant] = useState(null), [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7))
   // Phase 17: multi-file upload. Each pending import is one file's parsed transactions.
   // Single-file upload is just an array of length 1. Each entry tracks its own selectedRows + editingCell.
@@ -61,6 +64,13 @@ function App() {
   // the post-login refreshTransactions() effect runs.
   const [unlockError, setUnlockError] = useState(null)
   const fileInputRef = useRef(null), welcomeInputRef = useRef(null), profileInputRef = useRef(null)
+  // Blocker (budgets migration): true once refreshBudgets has resolved (success or failure).
+  // Guards the [budgets] effect below so it never PUTs the pre-hydration localStorage value
+  // or the server GET result back to the server, racing the in-flight GET or overwriting it.
+  const budgetsHydrated = useRef(false)
+  // Set right before the hydration setBudgets(obj) call so the effect it triggers is skipped
+  // (that setBudgets reflects what the server already has -- nothing new to persist).
+  const skipNextBudgetsPut = useRef(false)
   const t = themes[mode]
 
   const authHeaders = () => authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
@@ -133,6 +143,7 @@ function App() {
     setAuthToken(null)
     setAuthUser(null)
     setData([])
+    setRecurringItems([])
     // Fix round: a batch that partially failed (e.g. token expired mid-loop, HTTP 401)
     // must not survive logout/login -- otherwise "Import all" after re-login re-POSTs
     // the files that had already succeeded before the 401 (see handleConfirmImport).
@@ -146,6 +157,7 @@ function App() {
     setAccounts([])
     setActiveAccount('All')
     setBudgets({})
+    setRecurringItems([])
     localStorage.removeItem('spendscope_accounts')
     localStorage.removeItem('spendscope_budgets')
     setPage('upload')
@@ -192,7 +204,32 @@ function App() {
     } catch (e) { console.error('Failed to load accounts:', e) }
   }
 
-  useEffect(() => { if (!authToken) { setLoading(false); return }; Promise.all([refreshTransactions(), refreshAccounts()]).finally(() => setLoading(false)) }, [authToken])
+  // Hydrates recurringItems from the server-side detector (confirmed items feed
+  // subscriptions/subPredictions/totalSubCost further down, replacing the old
+  // client-side subscription detection).
+  const refreshRecurring = async () => {
+    if (!authToken) return
+    try {
+      const j = await planApi.getRecurring(authHeaders)
+      if (Array.isArray(j?.items)) setRecurringItems(j.items)
+    } catch (e) { console.error('Failed to load recurring items:', e) }
+  }
+
+  // Hydrates the {category: amount} shape SpendingPage already expects, translated from
+  // the server's {items: [{category, amount, period, currency}]} wire shape.
+  const refreshBudgets = async () => {
+    if (!authToken) return
+    try {
+      const j = await planApi.getBudgets(authHeaders)
+      const obj = {}
+      for (const b of (j?.items || [])) obj[b.category] = b.amount
+      skipNextBudgetsPut.current = true
+      setBudgets(obj)
+    } catch (e) { console.error('Failed to load budgets:', e) }
+    finally { budgetsHydrated.current = true }
+  }
+
+  useEffect(() => { if (!authToken) { setLoading(false); return }; Promise.all([refreshTransactions(), refreshAccounts(), refreshRecurring(), refreshBudgets()]).finally(() => setLoading(false)) }, [authToken])
   // Blocker 4a: encryptionKey only ever gets set inside handleLogin -- on a page refresh
   // (token still in localStorage) it resets to null even though the DEK may still be
   // cached in sessionStorage (storeDek persists across refresh, only tab-close clears it).
@@ -210,24 +247,28 @@ function App() {
   // merchant/description were uploaded in CLEARTEXT with no error. Persist every update here so
   // there is one source of truth rather than one write site per caller.
   useEffect(() => { if (authUser) localStorage.setItem('spendscope_user', JSON.stringify(authUser)) }, [authUser])
-  useEffect(() => { localStorage.setItem('spendscope_budgets', JSON.stringify(budgets)) }, [budgets])
+  useEffect(() => {
+    localStorage.setItem('spendscope_budgets', JSON.stringify(budgets))
+    // Best-effort server sync -- SpendingPage calls setBudgets directly (localStorage-only
+    // shape), so this effect is the single place that also persists to planApi.putBudgets
+    // whenever budgets changes, without blocking the UI on the network call.
+    // Skip the change caused by refreshBudgets' own hydration setBudgets(obj) (nothing new
+    // to persist -- it's a mirror of what the server just returned), and skip any change
+    // that fires before hydration has resolved (the pre-hydration localStorage value on
+    // mount), so this never races or overwrites the in-flight GET.
+    if (skipNextBudgetsPut.current) { skipNextBudgetsPut.current = false; return }
+    if (!authToken || !budgetsHydrated.current) return
+    const items = Object.entries(budgets).map(([category, amount]) => ({ category, amount, period: 'monthly', currency: authUser?.currency || 'USD' }))
+    planApi.putBudgets(items, authHeaders).catch(e => console.error('Failed to sync budgets:', e))
+  }, [budgets])
   useEffect(() => { localStorage.setItem('spendscope_accounts', JSON.stringify(accounts)) }, [accounts])
 
+  // Currency now just mirrors authUser.currency (an ISO code) directly, instead of being
+  // heuristically detected from imported transaction data.
   useEffect(() => {
-    if (data.length === 0) return
-    const CC = { 'USA': '$', 'US': '$', 'United States': '$', 'UK': '\u00A3', 'United Kingdom': '\u00A3', 'GB': '\u00A3', 'Great Britain': '\u00A3', 'India': '\u20B9', 'IN': '\u20B9', 'Japan': '\u00A5', 'JP': '\u00A5', 'China': '\u00A5', 'CN': '\u00A5', 'Germany': '\u20AC', 'France': '\u20AC', 'Italy': '\u20AC', 'Spain': '\u20AC', 'Netherlands': '\u20AC', 'Belgium': '\u20AC', 'Austria': '\u20AC', 'Ireland': '\u20AC', 'Portugal': '\u20AC', 'Greece': '\u20AC', 'Finland': '\u20AC', 'EU': '\u20AC', 'Australia': 'A$', 'AU': 'A$', 'Canada': 'C$', 'CA': 'C$' }
     const CS = { 'USD': '$', 'GBP': '\u00A3', 'EUR': '\u20AC', 'INR': '\u20B9', 'JPY': '\u00A5', 'CNY': '\u00A5', 'AUD': 'A$', 'CAD': 'C$' }
-    const sample = data[0] || {}
-    const ck = Object.keys(sample).find(k => /^country$/i.test(k) || /^country[_ ]?(code|name)?$/i.test(k) || /^region$/i.test(k))
-    if (ck) { const vals = [...new Set(data.map(d => (d[ck] || '').trim()).filter(Boolean))]; for (const v of vals) { const m = CC[v] || CC[v.toUpperCase()]; if (m) { setCurrency(m); return } } }
-    const currK = Object.keys(sample).find(k => /^currency$/i.test(k) || /^currency[_ ]?(code|name)?$/i.test(k))
-    if (currK) { const vals = [...new Set(data.map(d => (d[currK] || '').trim()).filter(Boolean))]; for (const v of vals) { const m = CS[v.toUpperCase()] || CS[v]; if (m) { setCurrency(m); return } } }
-    const sf = Object.keys(sample).filter(k => typeof sample[k] === 'string'), sc = { '$': 0, '\u00A3': 0, '\u20AC': 0, '\u20B9': 0, '\u00A5': 0 }
-    for (const row of data.slice(0, 100)) { for (const k of sf) { const v = row[k] || ''; if (v.includes('$')) sc['$']++; if (v.includes('\u00A3')) sc['\u00A3']++; if (v.includes('\u20AC')) sc['\u20AC']++; if (v.includes('\u20B9')) sc['\u20B9']++; if (v.includes('\u00A5')) sc['\u00A5']++ } }
-    const top = Object.entries(sc).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1])[0]
-    if (top) { setCurrency(top[0]); return }
-    setCurrency('$')
-  }, [data])
+    if (authUser?.currency) setCurrency(CS[authUser.currency] || '$')
+  }, [authUser?.currency])
 
   useEffect(() => { if (uploadStatus?.type === 'success') { const timer = setTimeout(() => setUploadStatus(null), 5000); return () => clearTimeout(timer) } }, [uploadStatus])
 
@@ -654,7 +695,6 @@ function App() {
   const catData = Object.entries(catTotals).map(([n, v]) => ({ name: n, value: Math.round(v * 100) / 100 })).sort((a, b) => b.value - a.value)
   const mOut = {}, mIn = {}; filteredData.forEach(x => { const m = x.date_iso.slice(0, 7); if (x.direction === 'OUT') mOut[m] = (mOut[m] || 0) + x.money_out; if (x.direction === 'IN') mIn[m] = (mIn[m] || 0) + x.money_in })
   const mData = Object.keys({ ...mOut, ...mIn }).sort().map(m => ({ month: m, spending: Math.round((mOut[m] || 0) * 100) / 100, income: Math.round((mIn[m] || 0) * 100) / 100 }))
-  const avgMonthlyOut = monthCount > 0 ? totalOut / monthCount : 0, avgMonthlyIn = monthCount > 0 ? totalIn / monthCount : 0
   const dTotals = {}; out.forEach(x => { dTotals[x.date_iso] = (dTotals[x.date_iso] || 0) + x.money_out })
   const dDataAll = Object.entries(dTotals).map(([d, v]) => ({ date: d.slice(5), fullDate: d, total: Math.round(v * 100) / 100 })).sort((a, b) => a.fullDate.localeCompare(b.fullDate))
   const chartRangeMonths = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12, 'All': 0 }
@@ -690,33 +730,24 @@ function App() {
   })
   anomalies.sort((a, b) => b.money_out - a.money_out)
 
-  // Subscription Detection
-  const subscriptions = []
-  const SUBSCRIPTION_EXCLUDED_CATS = new Set(['Eating Out', 'Groceries', 'Transport', 'Shopping', 'Food', 'Food Delivery', 'Coffee & Cafe', 'Other'])
-  const merchByMonth = {}
-  out.forEach(x => { const m = x.date_iso.slice(0, 7); const key = x.merchant; if (key === '[REDACTED]') return; if (!merchByMonth[key]) merchByMonth[key] = { months: {}, category: x.category }; if (!merchByMonth[key].months[m]) merchByMonth[key].months[m] = []; merchByMonth[key].months[m].push(x.money_out) })
-  const minMonthsForSub = Math.min(3, monthCount - 1)
-  Object.entries(merchByMonth).forEach(([merchant, { months: monthMap, category }]) => {
-    if (SUBSCRIPTION_EXCLUDED_CATS.has(category)) return
-    const monthsPresent = Object.keys(monthMap).length; if (monthsPresent < Math.max(minMonthsForSub, 2)) return
-    const amounts = Object.values(monthMap).map(arr => arr.reduce((s, v) => s + v, 0))
-    const avgAmt = amounts.reduce((s, v) => s + v, 0) / amounts.length; if (avgAmt > 100) return
-    const allTxnAmounts = Object.values(monthMap).flat(), txnMean = allTxnAmounts.reduce((s, v) => s + v, 0) / allTxnAmounts.length
-    const txnStd = Math.sqrt(allTxnAmounts.reduce((s, v) => s + Math.pow(v - txnMean, 2), 0) / allTxnAmounts.length)
-    if (txnMean > 0 && txnStd / txnMean > 0.2) return
-    const txnsPerMonth = Object.values(monthMap).map(arr => arr.length), avgTxnsPerMonth = txnsPerMonth.reduce((s, v) => s + v, 0) / txnsPerMonth.length
-    if (avgTxnsPerMonth > 2) return
-    subscriptions.push({ merchant, monthlyAvg: Math.round(avgAmt * 100) / 100, monthsPresent })
-  })
-  subscriptions.sort((a, b) => b.monthlyAvg - a.monthlyAvg)
+  // Recurring subscriptions -- now sourced from the server's recurring-item detector
+  // (planApi.getRecurring, hydrated into recurringItems) instead of being derived
+  // client-side from raw transactions. Only confirmed items count ("suggested" ones are
+  // surfaced for review elsewhere). Only OUT-direction items are "subscriptions" (recurring
+  // charges) -- a confirmed IN item (e.g. paycheck) is recurring income, not spending, and
+  // must not inflate totalSubCost (which feeds the health-score subscription-burden calc
+  // below). subscriptions/subPredictions/totalSubCost keep their original shape so
+  // CalendarPage, the insights text, and the PDF export need zero further edits.
+  const confirmedSubs = recurringItems.filter(r => r.status === 'confirmed' && r.direction === 'OUT')
+  const subscriptions = confirmedSubs.map(r => ({ merchant: r.label, monthlyAvg: Math.round((r.amount || 0) * 100) / 100, monthsPresent: 0 })).sort((a, b) => b.monthlyAvg - a.monthlyAvg)
   const totalSubCost = subscriptions.reduce((s, x) => s + x.monthlyAvg, 0)
 
   // Bill Calendar Predictions
-  const subPredictions = subscriptions.map(sub => { const txns = out.filter(x => x.merchant === sub.merchant).map(x => x.date_iso).sort(); const lastDate = txns[txns.length - 1]; if (!lastDate) return null; return { merchant: sub.merchant, amount: sub.monthlyAvg, predictedDay: parseInt(lastDate.slice(8, 10)) } }).filter(Boolean)
-
-  // Forecast
-  const forecastMonths = []; for (let i = 1; i <= 3; i++) { const d = new Date(maxDate); d.setMonth(d.getMonth() + i); forecastMonths.push({ month: d.toISOString().slice(0, 7), income: Math.round(avgMonthlyIn), spending: Math.round(avgMonthlyOut + totalSubCost), type: 'forecast' }) }
-  const cashFlowChart = [...mData.map(m => ({ ...m, type: 'actual' })), ...forecastMonths]
+  const subPredictions = confirmedSubs.map(r => {
+    const predictedDay = r.anchor_day ?? (r.next_date ? parseInt(r.next_date.slice(8, 10), 10) : null)
+    if (!predictedDay) return null
+    return { merchant: r.label, amount: Math.round((r.amount || 0) * 100) / 100, predictedDay }
+  }).filter(Boolean)
 
   // Health Score
   const savingsRate = totalIn > 0 ? ((totalIn - totalOut) / totalIn) : 0, savingsScore = Math.min(savingsRate / 0.2, 1) * 35
@@ -847,11 +878,19 @@ function App() {
           )}
 
           {page === 'overview' && (
-            <DashboardPage t={t} mode={mode} currency={currency} dc={dc} lc={lc} userName={userName} monthlyAvg={monthlyAvg} catData={catData} lifeSpend={lifeSpend} monthCount={monthCount} net={net} totalIn={totalIn} totalOut={totalOut} filteredData={filteredData} weekDiff={weekDiff} weekLabel={weekLabel} thisWeekSpend={thisWeekSpend} weekPct={weekPct} dData={dData} chartRange={chartRange} setChartRange={setChartRange} mData={mData} topM={topM} recentTxns={recentTxns} handleExportPDF={handleExportPDF} cashFlowChart={cashFlowChart} forecastMonths={forecastMonths} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} onAddCard={() => setPage('upload')} onEditAccount={(a) => { const due = prompt(`Set payment due day (1-31) for ${a.name}, or blank to clear:`, a.due_day || ''); if (due === null) return; const v = due.trim() === '' ? null : parseInt(due, 10); fetch(`${API_BASE}/api/accounts/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ due_day: v }) }).then(() => refreshAccounts()) }} />
+            // Temporary shim: DashboardPage (owned by another lane) still renders cashFlowChart/
+            // forecastMonths when monthCount >= 2. Pass actual monthly data as the "chart" with an
+            // empty forecast window until an integration pass gives it real forecast data.
+            <DashboardPage t={t} mode={mode} currency={currency} dc={dc} lc={lc} userName={userName} monthlyAvg={monthlyAvg} catData={catData} lifeSpend={lifeSpend} monthCount={monthCount} net={net} totalIn={totalIn} totalOut={totalOut} filteredData={filteredData} weekDiff={weekDiff} weekLabel={weekLabel} thisWeekSpend={thisWeekSpend} weekPct={weekPct} dData={dData} chartRange={chartRange} setChartRange={setChartRange} mData={mData} topM={topM} recentTxns={recentTxns} handleExportPDF={handleExportPDF} cashFlowChart={mData.map(m => ({ ...m, type: 'actual' }))} forecastMonths={[]} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} onAddCard={() => setPage('upload')} onEditAccount={(a) => { const due = prompt(`Set payment due day (1-31) for ${a.name}, or blank to clear:`, a.due_day || ''); if (due === null) return; const v = due.trim() === '' ? null : parseInt(due, 10); fetch(`${API_BASE}/api/accounts/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ due_day: v }) }).then(() => refreshAccounts()) }} />
           )}
 
           {page === 'spending' && (
-            <SpendingPage t={t} currency={currency} lc={lc} catData={catData} out={out} monthCount={monthCount} catByMonth={catByMonth} lastMonth={lastMonth} prevMonth={prevMonth} budgets={budgets} setBudgets={setBudgets} editingBudget={editingBudget} setEditingBudget={setEditingBudget} budgetInputVal={budgetInputVal} setBudgetInputVal={setBudgetInputVal} healthScore={healthScore} lowDataHealth={lowDataHealth} currMonthSpend={currMonthSpend} prevMonthSpend={prevMonthSpend} />
+            <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                <button onClick={() => setPage('budgets')} style={{ padding: '8px 14px', borderRadius: '10px', border: `1px solid ${t.border}`, background: 'transparent', color: t.textLight, fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Manage budgets</button>
+              </div>
+              <SpendingPage t={t} currency={currency} lc={lc} catData={catData} out={out} monthCount={monthCount} catByMonth={catByMonth} lastMonth={lastMonth} prevMonth={prevMonth} budgets={budgets} setBudgets={setBudgets} editingBudget={editingBudget} setEditingBudget={setEditingBudget} budgetInputVal={budgetInputVal} setBudgetInputVal={setBudgetInputVal} healthScore={healthScore} lowDataHealth={lowDataHealth} currMonthSpend={currMonthSpend} prevMonthSpend={prevMonthSpend} />
+            </>
           )}
 
           {page === 'merchants' && (

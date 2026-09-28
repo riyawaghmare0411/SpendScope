@@ -9,7 +9,7 @@ Fixes carried from the MoneyMap audit:
   (400), never a silent round to 200.
 """
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Union
 
 # Exponent (decimal places) per currency. Extend as new currencies are onboarded;
@@ -24,31 +24,44 @@ class MoneyValidationError(ValueError):
 
 
 def currency_exponent(currency: str) -> int:
-    raise NotImplementedError
+    return CURRENCY_EXPONENTS.get(currency, 2)
 
 
 def parse_amount(value: Union[str, int, float, Decimal], currency: str) -> Decimal:
     """Parse a wire value into an exact Decimal. 0 is a valid amount, not an absent one.
     Raises MoneyValidationError if value has more decimal places than the currency allows."""
-    raise NotImplementedError
+    if value is None:
+        raise MoneyValidationError(f"Amount is required for {currency}")
+    amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    exponent = currency_exponent(currency)
+    decimal_places = -amount.as_tuple().exponent
+    if decimal_places > exponent:
+        raise MoneyValidationError(
+            f"{value!r} has more decimal places than {currency} allows ({exponent})"
+        )
+    return amount
 
 
 def quantize(amount: Decimal, currency: str) -> Decimal:
     """Round `amount` to `currency`'s exponent using banker's-rounding-free HALF_UP."""
-    raise NotImplementedError
+    exponent = currency_exponent(currency)
+    quantum = Decimal(1).scaleb(-exponent)
+    return amount.quantize(quantum, rounding=ROUND_HALF_UP)
 
 
 def to_minor(amount: Decimal, currency: str) -> int:
     """Convert a quantized Decimal amount to integer minor units (e.g. dollars -> cents)."""
-    raise NotImplementedError
+    exponent = currency_exponent(currency)
+    return int(amount.scaleb(exponent).to_integral_value(rounding=ROUND_HALF_UP))
 
 
 def from_minor(minor: int, currency: str) -> Decimal:
     """Inverse of to_minor."""
-    raise NotImplementedError
+    exponent = currency_exponent(currency)
+    return Decimal(minor).scaleb(-exponent)
 
 
 def to_json_number(amount: Decimal) -> float:
     """Convert a quantized Decimal to a JSON-safe float. Safe because a value already
     quantized to <=2dp round-trips exactly through float at realistic magnitudes."""
-    raise NotImplementedError
+    return float(amount)

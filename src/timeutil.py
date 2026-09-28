@@ -8,6 +8,7 @@ who hasn't set User.timezone explicitly still gets a sane "today" instead of UTC
 
 from datetime import date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 DEFAULT_TZ = "UTC"
 
@@ -25,14 +26,16 @@ COUNTRY_TZ_FALLBACK: dict[str, str] = {
 
 def resolve_timezone(user_timezone: Optional[str], country: Optional[str]) -> str:
     """User.timezone wins; else COUNTRY_TZ_FALLBACK[country]; else DEFAULT_TZ."""
-    raise NotImplementedError
+    if user_timezone:
+        return user_timezone
+    return COUNTRY_TZ_FALLBACK.get(country) or DEFAULT_TZ
 
 
 def today_for(tz_name: str) -> date:
     """The calendar date right now in `tz_name`. Use instead of date.today() anywhere in
     the plan engine -- the server's own timezone is never the right answer for a user."""
-    raise NotImplementedError
+    return datetime.now(ZoneInfo(tz_name)).date()
 
 
 def now_for(tz_name: str) -> datetime:
-    raise NotImplementedError
+    return datetime.now(ZoneInfo(tz_name))

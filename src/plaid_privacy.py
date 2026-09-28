@@ -5,6 +5,7 @@ this module is what "redacted" means in practice, plus the rest of MoneyMap's Pl
 rules (opaque handles, fixed error copy, server-generated display labels).
 """
 
+import hashlib
 import re
 from typing import Optional
 
@@ -28,23 +29,23 @@ DEFAULT_ERROR_COPY = "We couldn't sync this bank right now. Try again shortly."
 
 def redact_digits(text: str) -> str:
     """Replace every run of 4+ digits in `text` with a fixed placeholder."""
-    raise NotImplementedError
+    return DIGIT_RUN_RE.sub("****", text)
 
 
 def opaque_handle(raw_id: str) -> str:
     """SHA-256 hex digest of `raw_id`, truncated -- an opaque handle for logs/telemetry
     that is never reversible back to Plaid's own account/item id."""
-    raise NotImplementedError
+    return hashlib.sha256(raw_id.encode()).hexdigest()[:16]
 
 
 def error_copy_for(error_code: Optional[str]) -> str:
     """PLAID_ERROR_COPY[error_code] if known, else DEFAULT_ERROR_COPY. Never passes through
     Plaid's own error_message."""
-    raise NotImplementedError
+    return PLAID_ERROR_COPY.get(error_code, DEFAULT_ERROR_COPY)
 
 
 def generate_display_label(kind: str, index: int) -> str:
     """Server-generated account label, e.g. generate_display_label("checking", 1) ->
     "Checking 1". Used instead of Plaid's official_name/mask, neither of which ever
     leaves the server."""
-    raise NotImplementedError
+    return f"{kind.replace('_', ' ').title()} {index}"

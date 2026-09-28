@@ -8,7 +8,12 @@ to drive the redesigned Coach page (no more stat duplication with Insights/Dashb
 
 from __future__ import annotations
 from datetime import date, timedelta
-from collections import Counter, defaultdict
+from decimal import Decimal
+from collections import Counter
+
+from src.plan_types import TxnLite
+from src.recurrence import find_recurring_candidates, monthly_equivalent
+from src.timeutil import today_for
 
 
 # Mirror of frontend constants.js PEER_BENCHMARKS. Percentages of monthly income
@@ -113,7 +118,7 @@ def compute_stats(transactions: list[dict], user_currency: str = "$") -> dict:
     top_cats = cat_totals.most_common(5)
 
     # This month
-    today = date.today()
+    today = today_for("UTC")  # TODO: wire real user timezone through once BP-A fills in timeutil
     ymp = today.strftime("%Y-%m")
     days_in_month = _last_day_of_month(today.year, today.month)
     this_in = sum(float(t.get("money_in") or 0) for t in in_txns if (t.get("date_iso") or "").startswith(ymp))
@@ -167,31 +172,35 @@ def compute_stats(transactions: list[dict], user_currency: str = "$") -> dict:
     }
 
 
+_RECURRING_CURRENCY_TAG = "ACCOUNT"  # out_txns dicts carry no per-txn currency code (they're
+# already scoped to one user's single account currency by the caller) -- a constant tag is
+# fine since recurrence.py's P90 bucketing only needs internal grouping consistency here.
+
+
 def _detect_recurring_subs(out_txns: list[dict]) -> list[dict]:
-    """Group OUT transactions by merchant; return ones that look like subs.
-    Sub criteria: same merchant, similar amount (+/- 10%), seen >= 2 months."""
-    by_merchant = defaultdict(list)
+    """Group OUT transactions by merchant; return ones recurrence.py classifies as a real
+    recurring cadence. Thin adapter over src.recurrence.find_recurring_candidates -- keeps
+    this function's signature/shape so generate_action_plan needs no changes, and keeps
+    exactly ONE recurring/subscription detector in the codebase."""
+    txn_lites = []
     for t in out_txns:
-        m = (t.get("merchant") or "").strip()
-        if not m or not t.get("date_iso"):
+        amount = t.get("money_out") or 0
+        if not amount or not t.get("date_iso") or not (t.get("merchant") or "").strip():
             continue
-        by_merchant[m].append(t)
-    subs = []
-    for merchant, txns in by_merchant.items():
-        if len(txns) < 2:
-            continue
-        amounts = [float(t.get("money_out") or 0) for t in txns]
-        avg = sum(amounts) / len(amounts)
-        if avg < 1:
-            continue
-        # Tight amount range = subscription, not random spend at the same place
-        spread = (max(amounts) - min(amounts)) / max(avg, 0.01)
-        if spread > 0.25:
-            continue
-        months = sorted({t["date_iso"][:7] for t in txns})
-        if len(months) < 2:
-            continue
-        subs.append({"merchant": merchant, "monthly_avg": round(avg, 2), "months_seen": len(months)})
+        txn_lites.append(TxnLite(
+            account_id="",
+            date=date.fromisoformat(t["date_iso"]),
+            amount=Decimal(str(amount)),
+            direction="OUT",
+            currency=_RECURRING_CURRENCY_TAG,
+            merchant=t.get("merchant"),
+        ))
+    candidates = find_recurring_candidates(txn_lites)
+    subs = [{
+        "merchant": c.merchant_label,
+        "monthly_avg": round(float(monthly_equivalent(c)), 2),
+        "months_seen": c.months_seen,
+    } for c in candidates]
     return sorted(subs, key=lambda s: -s["monthly_avg"])
 
 
@@ -259,7 +268,7 @@ def generate_action_plan(transactions: list[dict], user_currency: str = "$") -> 
             })
 
     # Action 2: pace overspend this month (independent of categories)
-    today = date.today()
+    today = today_for("UTC")  # TODO: wire real user timezone through once BP-A fills in timeutil
     ymp = today.strftime("%Y-%m")
     this_in = sum(float(t.get("money_in") or 0) for t in in_txns if (t.get("date_iso") or "").startswith(ymp))
     this_out = sum(float(t.get("money_out") or 0) for t in out_txns if (t.get("date_iso") or "").startswith(ymp))

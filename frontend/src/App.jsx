@@ -16,6 +16,11 @@ import { InsightsPage } from './components/InsightsPage'
 import { CoachPage } from './components/CoachPage'
 import RulesPage from './components/RulesPage'
 import UploadPage from './components/UploadPage'
+import TodayPage from './components/TodayPage'
+import FuturePage from './components/FuturePage'
+import SimulatePage from './components/SimulatePage'
+import AccountsPage from './components/AccountsPage'
+import BudgetsPage from './components/BudgetsPage'
 import Sidebar from './components/Sidebar'
 import ProfileModal from './components/ProfileModal'
 import EncryptionSettings from './components/EncryptionSettings'
@@ -856,7 +861,7 @@ function App() {
           <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <h1 style={{ fontSize: '24px', fontWeight: 700, color: t.text, margin: 0 }}>
-                {page === 'overview' && 'Dashboard Overview'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'coach' && 'AI Money Coach'}{page === 'rules' && 'Category Rules'}{page === 'upload' && 'Upload Statement'}
+                {page === 'overview' && 'Dashboard Overview'}{page === 'today' && 'Today'}{page === 'future' && 'Future'}{page === 'simulate' && 'Simulate'}{page === 'spending' && 'Spending Analysis'}{page === 'transactions' && 'Transaction History'}{page === 'merchants' && 'Merchant Intelligence'}{page === 'calendar' && 'Bill Calendar'}{page === 'insights' && 'SpendScope Insights'}{page === 'coach' && 'AI Money Coach'}{page === 'rules' && 'Category Rules'}{page === 'accounts' && 'Accounts'}{page === 'upload' && 'Upload Statement'}{page === 'budgets' && 'Budget Management'}
               </h1>
               <p style={{ color: t.textMuted, fontSize: '13px', margin: '4px 0 0' }}>{dateRangeStr}{globalRange !== 'All' ? ` (${globalRange})` : ''}</p>
             </div>
@@ -882,6 +887,18 @@ function App() {
             // forecastMonths when monthCount >= 2. Pass actual monthly data as the "chart" with an
             // empty forecast window until an integration pass gives it real forecast data.
             <DashboardPage t={t} mode={mode} currency={currency} dc={dc} lc={lc} userName={userName} monthlyAvg={monthlyAvg} catData={catData} lifeSpend={lifeSpend} monthCount={monthCount} net={net} totalIn={totalIn} totalOut={totalOut} filteredData={filteredData} weekDiff={weekDiff} weekLabel={weekLabel} thisWeekSpend={thisWeekSpend} weekPct={weekPct} dData={dData} chartRange={chartRange} setChartRange={setChartRange} mData={mData} topM={topM} recentTxns={recentTxns} handleExportPDF={handleExportPDF} cashFlowChart={mData.map(m => ({ ...m, type: 'actual' }))} forecastMonths={[]} accounts={accounts} activeAccount={activeAccount} setActiveAccount={setActiveAccount} onAddCard={() => setPage('upload')} onEditAccount={(a) => { const due = prompt(`Set payment due day (1-31) for ${a.name}, or blank to clear:`, a.due_day || ''); if (due === null) return; const v = due.trim() === '' ? null : parseInt(due, 10); fetch(`${API_BASE}/api/accounts/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ due_day: v }) }).then(() => refreshAccounts()) }} />
+          )}
+
+          {page === 'today' && (
+            <TodayPage t={t} authHeaders={authHeaders} authUser={authUser} accounts={accounts} />
+          )}
+
+          {page === 'future' && (
+            <FuturePage t={t} authHeaders={authHeaders} authUser={authUser} />
+          )}
+
+          {page === 'simulate' && (
+            <SimulatePage t={t} authHeaders={authHeaders} authUser={authUser} />
           )}
 
           {page === 'spending' && (
@@ -915,6 +932,14 @@ function App() {
 
           {page === 'rules' && (
             <RulesPage t={t} currency={currency} rulesVersion={rulesVersion} setRulesVersion={setRulesVersion} data={data} setData={setData} setUploadStatus={setUploadStatus} uploadStatus={uploadStatus} ALL_CATEGORIES={ALL_CATEGORIES} CAT_COLORS={CAT_COLORS} lc={lc} authHeaders={authHeaders} API_BASE={API_BASE} />
+          )}
+
+          {page === 'accounts' && (
+            <AccountsPage t={t} authHeaders={authHeaders} authUser={authUser} accounts={accounts} refreshAccounts={refreshAccounts} />
+          )}
+
+          {page === 'budgets' && (
+            <BudgetsPage t={t} authHeaders={authHeaders} authUser={authUser} />
           )}
 
           {page === 'upload' && (

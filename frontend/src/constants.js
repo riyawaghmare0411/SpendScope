@@ -106,6 +106,9 @@ export const fmtShort = (num) => {
 // ========== NAV ITEMS ==========
 export const NAV = [
   { id: 'overview', icon: '\u25CE', label: 'Overview' },
+  { id: 'today', icon: '\u2600', label: 'Today' },
+  { id: 'future', icon: '\uD83D\uDD2E', label: 'Future' },
+  { id: 'simulate', icon: '\uD83D\uDCC9', label: 'Simulate' },
   { id: 'spending', icon: '\u25C9', label: 'Spending' },
   { id: 'merchants', icon: '\uD83C\uDFEA', label: 'Merchants' },
   { id: 'transactions', icon: '\u2630', label: 'Transactions' },
@@ -113,6 +116,7 @@ export const NAV = [
   { id: 'insights', icon: '\uD83D\uDCA1', label: 'Insights' },
   { id: 'coach', icon: '\uD83E\uDDE0', label: 'Coach' },
   { id: 'rules', icon: '\u2699', label: 'Rules' },
+  { id: 'accounts', icon: '\uD83C\uDFE6', label: 'Accounts' },
   { id: 'upload', icon: '\u2B06', label: 'Upload' },
 ]
 

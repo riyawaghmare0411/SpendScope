@@ -5,6 +5,7 @@ Wave 1's BP-ACCT lane extends this file with the new Plaid/manual-debt fields.""
 from fastapi import APIRouter, Request, Depends, HTTPException
 from sqlalchemy import select, func, delete as sa_delete
 import uuid
+from datetime import date
 
 from src.database import get_db
 from src.models import User, Account, ImportBatch, Transaction as TxnModel
@@ -20,13 +21,21 @@ def _account_to_dict(a: Account, txn_count: int = 0) -> dict:
         "bank_name": a.bank_name,
         "account_type": a.account_type,
         "currency": a.currency,
-        "mask": a.mask,
         "subtype": a.subtype,
         "credit_limit": float(a.credit_limit) if a.credit_limit is not None else None,
         "current_balance": float(a.current_balance) if a.current_balance is not None else None,
         "available_balance": float(a.available_balance) if a.available_balance is not None else None,
         "due_day": a.due_day,
         "last_synced_at": a.last_synced_at.isoformat() if a.last_synced_at else None,
+        "kind": a.kind,
+        "counts_as_cash": a.counts_as_cash,
+        "statement_balance": float(a.statement_balance) if a.statement_balance is not None else None,
+        "minimum_payment": float(a.minimum_payment) if a.minimum_payment is not None else None,
+        "next_due_date": a.next_due_date.isoformat() if a.next_due_date else None,
+        "apr_bps": a.apr_bps,
+        "balance_as_of": a.balance_as_of.isoformat() if a.balance_as_of else None,
+        "term_months": a.term_months,
+        "balance_source": a.balance_source,
         "is_plaid": a.plaid_item_id is not None,
         "plaid_item_id": str(a.plaid_item_id) if a.plaid_item_id else None,
         "plaid_account_id": a.plaid_account_id,
@@ -55,15 +64,41 @@ async def create_account(request: Request, current_user=Depends(get_current_user
     user_id = uuid.UUID(current_user["user_id"])
     user = await db.get(User, user_id)
     currency = body.get("currency") or (user.currency if user else "USD")
+    account_type = body.get("account_type") or "checking"
+
+    # counts_as_cash: default the same way the Phase 0 migration did, unless the
+    # caller explicitly supplied a value (including explicit false).
+    if body.get("counts_as_cash") is not None:
+        counts_as_cash = body["counts_as_cash"]
+    else:
+        counts_as_cash = account_type in ("checking", "savings")
+
+    next_due_date_raw = body.get("next_due_date")
+    if next_due_date_raw:
+        try:
+            next_due_date = date.fromisoformat(next_due_date_raw)
+        except ValueError:
+            raise HTTPException(400, "next_due_date must be an ISO date (YYYY-MM-DD)")
+    else:
+        next_due_date = None
+
     account = Account(
         user_id=user_id,
         name=name,
         bank_name=body.get("bank_name") or "",
-        account_type=body.get("account_type") or "checking",
+        account_type=account_type,
         subtype=body.get("subtype"),
         currency=currency,
         credit_limit=body.get("credit_limit"),
         due_day=body.get("due_day"),
+        kind=body.get("kind"),
+        counts_as_cash=counts_as_cash,
+        statement_balance=body.get("statement_balance"),
+        minimum_payment=body.get("minimum_payment"),
+        next_due_date=next_due_date,
+        apr_bps=body.get("apr_bps"),
+        term_months=body.get("term_months"),
+        balance_source="manual",
     )
     db.add(account)
     await db.commit()
@@ -98,6 +133,31 @@ async def update_account(account_id: str, request: Request, current_user=Depends
     # credit_limit editable only for non-Plaid accounts (Plaid is source of truth there)
     if "credit_limit" in body and not is_plaid:
         account.credit_limit = body["credit_limit"]
+    # counts_as_cash editable for any account -- the user decides whether e.g. a joint
+    # account counts toward their spendable cash
+    if "counts_as_cash" in body:
+        account.counts_as_cash = body["counts_as_cash"]
+    # debt-simulator fields editable only for non-Plaid accounts (Plaid is source of truth there)
+    if not is_plaid:
+        if "kind" in body:
+            account.kind = body["kind"]
+        if "statement_balance" in body:
+            account.statement_balance = body["statement_balance"]
+        if "minimum_payment" in body:
+            account.minimum_payment = body["minimum_payment"]
+        if "next_due_date" in body:
+            nd = body["next_due_date"]
+            if nd:
+                try:
+                    account.next_due_date = date.fromisoformat(nd)
+                except ValueError:
+                    raise HTTPException(400, "next_due_date must be an ISO date (YYYY-MM-DD)")
+            else:
+                account.next_due_date = None
+        if "apr_bps" in body:
+            account.apr_bps = body["apr_bps"]
+        if "term_months" in body:
+            account.term_months = body["term_months"]
 
     await db.commit()
     return _account_to_dict(account, 0)

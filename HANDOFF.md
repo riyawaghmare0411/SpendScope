@@ -64,8 +64,8 @@ This document is for a fresh Claude Code session picking up SpendScope. The prev
 4. Fallback: Income for IN-direction, Other for OUT
 
 ### Deploy
-- **Railway** (backend, Dockerfile builder, Postgres plugin). Auto-deploys from `master` push.
-- **Vercel** (frontend SPA). Auto-deploys from `master`. `VITE_API_URL` env var points at Railway URL.
+- **Railway** (backend, Dockerfile builder, Postgres plugin). Auto-deploys from a push to its connected branch -- there is no `master` branch in this repo (`git branch -r` shows only `origin/main`, `origin/phase-a-b-fixes`, `origin/prod`); which one Railway actually watches has not been verified from this worktree.
+- **Vercel** (frontend SPA). Auto-deploys from a push to its connected branch (same caveat as above). `VITE_API_URL` env var points at Railway URL.
 - Container image: `pgvector/pgvector:pg16` for local, Railway uses a managed Postgres with the pgvector extension installed.
 
 ---
@@ -82,32 +82,46 @@ focused-knuth/
 │       └── ci.yml                          # CI: postgres service + tests/test_*.py + frontend lint/build
 ├── Dockerfile                              # python:3.13-slim, non-root, bakes fastembed model at build
 ├── docker-compose.yml                      # pgvector/pgvector:pg16, port 5432, named volume pgdata
-├── railway.json                            # Railway deploy config (Dockerfile builder, health check /)
-├── requirements.txt                        # 116 packages (incl. Jupyter for notebooks)
+├── railway.json                            # Railway deploy config (Dockerfile builder, health check /health)
+├── requirements.txt                        # 132 packages (incl. Jupyter for notebooks)
 ├── requirements.prod.txt                   # slim, includes fastembed + pgvector + plaid-python
 ├── .env.example                            # template, sanitized
 ├── .env                                    # local secrets (gitignored)
 ├── README.md                               # public docs
 ├── tests/                                  # E2E scripts, tracked in git and run by CI (.github/workflows/ci.yml)
+│   ├── cleanup.py                          # shared helper (not a test): deletes a test user's rows in FK-safe order
 │   ├── test_wipe.py                        # E2E: signup -> wipe-data -> verify
 │   ├── test_multi_upload.py                # E2E: multi-file upload (Phase 17)
 │   ├── test_same_bank_dedup.py             # E2E: Phase 18 -- 3 Lloyds files -> 3 accounts not 1
 │   ├── test_edit_persist.py                # E2E: PATCH category -> survives refresh (Phase 23)
-│   └── test_cat_check.py                   # E2E: starter-rule sanity
+│   ├── test_cat_check.py                   # E2E: starter-rule sanity
+│   ├── test_rules_isolation.py             # E2E: Phase C category-rules user isolation (TESTS-CI lane)
+│   └── test_encryption.py                  # E2E: Phase E envelope encryption, drives real frontend crypto.js/keyManager.js via a Node harness
 ├── _backend.log / _backend.err.log         # uvicorn stdout/stderr when run in background
 ├── _frontend.log                           # Vite stdout when run in background
 ├── setup/
 │   ├── kt.md                               # project knowledge transfer (rules + architecture + design decisions 1-16)
 │   └── structure.md                        # file reference + changelog (updated phase-by-phase)
 ├── src/
-│   ├── api.py                              # 1225 lines, ~37 endpoints, all FastAPI routes
+│   ├── api.py                              # 903 lines, 26 routes (verified via `grep -c '@app\.' src/api.py`; 10 more were extracted into src/routes/ by Phase 0 -- 36 total across api.py + routes/accounts.py (4) + routes/plaid.py (6); see section 13 for the full table)
 │   ├── auth.py                             # 100 lines, JWT issue/verify + bcrypt
-│   ├── database.py                         # 59 lines, async engine + idempotent ALTER TABLE migration block
-│   ├── models.py                           # 186 lines, 9 SQLAlchemy models (User, Account, ImportBatch, Transaction, CategoryRule, Budget, CsvTemplate, PlaidItem)
+│   ├── database.py                         # async engine + migration block (extension created before create_all, then per-statement transactions that raise on failure -- 08362aa/F-2)
+│   ├── models.py                           # 8 SQLAlchemy models (User, Account, ImportBatch, Transaction, CategoryRule, Budget, CsvTemplate, PlaidItem)
 │   ├── categorize_local.py                 # 124 lines, fastembed singleton + KNN search
 │   ├── starter_rules.py                    # 123 lines, ~80 merchant keyword rules
 │   ├── stats_coach.py                      # 351 lines, deterministic financial summary + generate_action_plan
 │   ├── plaid_service.py                    # 334 lines, Plaid client + Fernet token crypto + transactions/sync cursor
+│   ├── routes/                             # Phase 0 (f6386c9): account CRUD + Plaid/webhook routes extracted verbatim out of api.py
+│   │   ├── accounts.py                     # 4 routes -- GET/POST /api/accounts, PATCH/DELETE /api/accounts/{id} (line count omitted -- Wave 1 is actively modifying this file, see section 6)
+│   │   └── plaid.py                        # 6 routes -- link-token, exchange-token, sync, items, item delete, /webhooks/plaid (line count omitted -- Wave 1 is actively modifying this file, see section 6)
+│   ├── plan_types.py                       # 168 lines, pure dataclasses, no SQLAlchemy (Phase 0) -- frozen contract for the plan/forecast engine
+│   ├── plan_models.py                      # 113 lines, SQLAlchemy ORM (Phase 0) -- 5 new tables: plan_settings, plan_balances, recurring_rules, balance_updates, plan_events
+│   ├── embedding_guard.py                  # 18 lines, fully implemented (Phase 0) -- wraps categorize_local.embed_text so a Plaid sync never 500s if the local ONNX embedder is unavailable
+│   ├── money.py                            # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted) -- decimal money handling for the plan engine
+│   ├── timeutil.py                         # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
+│   ├── plaid_privacy.py                    # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
+│   ├── plaid_sync.py                       # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
+│   ├── plaid_fake.py                       # Phase 0 skeleton; Wave 1 is filling it in now (uncommitted)
 │   └── parsers/
 │       ├── csv_parser.py                   # template-based CSV with auto-detection
 │       ├── pdf_parser.py                   # template-based PDF (Lloyds works best)
@@ -153,15 +167,13 @@ focused-knuth/
     └── 03_ai_narrator.ipynb
 ```
 
-Note: `Procfile` was mentioned in the changelog but **does not exist** in the worktree; `railway.json` uses Dockerfile builder so a Procfile is unnecessary.
-
 ---
 
 ## 4. Environment Setup
 
 ### Paths (verbatim)
 - Worktree: `D:\Projects\SpendScope\.claude\worktrees\focused-knuth`
-- Branch: `claude/focused-knuth`
+- Branch: `phase-a-b-fixes`
 - Python venv: `D:\Projects\spendscope_venv\` (sibling, NOT inside project)
 - venv python.exe: `D:\Projects\spendscope_venv\Scripts\python.exe`
 - venv activate (Git Bash): `source /d/Projects/spendscope_venv/Scripts/activate`
@@ -198,7 +210,11 @@ npm run dev
 ### Health checks
 
 ```bash
-# Backend health
+# Backend health (this is what railway.json's healthcheckPath actually targets, not "/")
+curl http://127.0.0.1:8000/health
+# Expected: {"status":"ok","db":"ok"}
+
+# Root endpoint (static string, no DB check -- exists but is not the healthcheck path)
 curl http://127.0.0.1:8000/
 # Expected: {"status":"SpendScope API is running"}
 
@@ -208,7 +224,8 @@ curl -X POST http://127.0.0.1:8000/api/categorize-local
 
 # Route count
 curl -s http://127.0.0.1:8000/openapi.json | python -c "import json,sys; print(len(json.load(sys.stdin)['paths']))"
-# Expected: ~37 paths
+# Expected: 31 paths (36 routes across api.py + routes/accounts.py + routes/plaid.py, but 5 paths
+# carry two methods each -- e.g. GET+PUT /api/auth/me -- so len(paths) undercounts routes)
 
 # Postgres pgvector extension live
 docker exec spendscope_db psql -U spendscope -d spendscope -c "SELECT * FROM pg_extension WHERE extname='vector';"
@@ -291,11 +308,11 @@ All phases are pulled from `C:\Users\riyaw\.claude\plans\robust-scribbling-bengi
 
 ### Phase 13 -- Production Deploy (shipped, `761c203`, `1cf6d24`, `1665720`)
 - Hardened Dockerfile -- model baked into image at build (offline mode), `libgomp1` added for ONNX runtime.
-- Railway: switched DB image to pgvector. Backfilled Phase 7+9+10+12 ALTER TABLEs into the startup migration block (Phase 13 follow-up commit `1cf6d24`).
+- Railway: switched DB image to pgvector. Backfilled Phase 7 (`users.encryption_salt`/`recovery_codes_hash`, `transactions.encrypted_data`) + Phase 9 (`import_batches.plaid_item_id`) ALTERs into the startup migration block -- these had been applied to prod by hand and were missing from the tracked migration list (Phase 13 follow-up commit `1cf6d24`; verified via `git show 1cf6d24` -- the commit message says "Phase 7 + 9" explicitly, and Phase 10/12's own ALTERs were already present from their own commits, nothing to backfill there).
 - Vercel: GitHub App linked, root dir set to `frontend`, `VITE_API_URL` configured.
 - Tags: `v0.13-deployed` = live anchor, `v0.12-pre-deploy` = rollback anchor.
 
-### Phase 14 -- Production Polish (5 sub-phases, all shipped to master)
+### Phase 14 -- Production Polish (5 sub-phases, all shipped to main -- commits `0348713`..`548463a`)
 
 **14A (`0348713`) -- ALL_CATEGORIES dropdown fix.** Hardcoded list was missing 9 of 30 categories (no Eating Out, Groceries, Transport, etc.). Fix: derive `ALL_CATEGORIES` from `CAT_COLORS` keys in `App.jsx:202`.
 
@@ -334,61 +351,67 @@ All phases are pulled from `C:\Users\riyaw\.claude\plans\robust-scribbling-bengi
 - Root cause: `${t.teal}10` in `UploadPage.jsx:171` was hex-alpha (6.3% opacity) -- header bled through first row.
 - Fix: `background: t.bg` (solid theme bg, opaque in both modes).
 
-### Phase 21 -- Calendar forward-arrow timezone bug (UNCOMMITTED, in working tree)
+### Phase 21 -- Calendar forward-arrow timezone bug (shipped, `0a688bd`)
 - `CalendarPage.jsx:50-51` `toISOString().slice(0,7)` converted local midnight to UTC. In positive-offset timezones (IST), midnight on the 1st became 18:30 UTC the previous day -- same YYYY-MM, arrow frozen.
 - Fix: integer math on year/month via `shiftMonth(delta)` -- timezone-independent.
-- See `git diff frontend/src/components/CalendarPage.jsx`.
+- See commit `0a688bd` (`git show 0a688bd -- frontend/src/components/CalendarPage.jsx`).
 
-### Phase 22 -- Everything-shows-Groceries fix (UNCOMMITTED)
+### Phase 22 -- Everything-shows-Groceries fix (shipped, `0a688bd`)
 - Corrupted `category_rules.json` (or DB rule rows) had no `match_value` field. `_match_rule` defaulted to `contains ""` which matches every merchant. ONE bad rule branded the entire dataset.
 - Three-part fix:
   1. **`src/api.py::_match_rule` (line 775-789):** treat empty `match_value` as no-match. Falls back to legacy `merchant` field for back-compat.
   2. **`frontend/src/components/EditTransactionModal.jsx` (~line 75-85):** when writing a new learned rule on Save, send the correct shape `{match_type:'contains', match_value, direction, category, is_learned:true, learned_at}`. Was previously sending `{merchant, direction, category, learned_at}` with no `match_value`.
   3. **`src/starter_rules.py` line 63:** tightened bare `"bp "` (was matching inside "non-GBP") to `"bp petrol"`.
-- See `git diff src/api.py src/starter_rules.py frontend/src/components/EditTransactionModal.jsx`.
+- See commit `0a688bd` (`git show 0a688bd -- src/api.py src/starter_rules.py frontend/src/components/EditTransactionModal.jsx`).
 
-### Phase 23 -- Edit-transaction Save doesn't stick (UNCOMMITTED)
+### Phase 23 -- Edit-transaction Save doesn't stick (shipped, `0a688bd`)
 - After Phase 22 cleared the bad rules, edits via the modal still appeared to revert. Backend was fine (`PATCH /api/transactions/{id}` updates the row correctly).
 - Root cause: `TransactionsPage.jsx::onSave` only called `applyChangesLocally` (mutates React `data`), never `refreshTransactions`. Two clobbering paths:
   1. Encrypted-mode users: stale category inside the decrypted blob wins on next refresh (the plaintext `category` column is correct, but the blob isn't).
   2. Non-encrypted users: any concurrent `setData` from another flow (account filter change, page nav, fresh fetch) clobbers the local mutation.
 - Fix (2 files, 1 prop + 1 call): pass `refreshTransactions` prop to `TransactionsPage`; call it after `applyChangesLocally` in `onSave`.
-- See `git diff frontend/src/App.jsx frontend/src/components/TransactionsPage.jsx`.
+- See commit `0a688bd` (`git show 0a688bd -- frontend/src/App.jsx frontend/src/components/TransactionsPage.jsx`).
 
 ---
 
 ## 6. Current State Snapshot
 
+**NOTE (2026-09-13): this section was previously stale by several months** -- it still described `claude/focused-knuth` at `9dd36b4` with Phases 21-23 uncommitted. All of that has since landed. Rewritten below from `git log --oneline -12` + `git status --short`, both run fresh.
+
 ### Git
-- Branch: `claude/focused-knuth`
-- Latest commit on branch: `9dd36b4` -- "Phase 16-20: multi-file upload, AccountsListPanel, session-expired handlers, sticky-header fix"
-- Master tip: `962c760` -- "Initial SpendScope app" (master appears stale, did NOT advance during this session -- branch is far ahead of master)
-- 6 uncommitted files (Phases 21 + 22 + 23):
+- Branch: `phase-a-b-fixes` (pushed to `origin/phase-a-b-fixes` on GitHub; CI runs on it)
+- Latest commit on branch: `f6386c9` -- "Phase 0: extract Plaid/account routers, merge plan-engine schema, add pure-module skeletons"
+- Working tree: **NOT clean** -- Wave 1 (MoneyMap integration) lane work is in progress on top of `f6386c9` in this worktree (uncommitted edits to `money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`, `stats_coach.py`, `src/routes/accounts.py`, `src/routes/plaid.py`, plus new untracked pure-modules and frontend pages under `frontend/src/components/`). This is a live in-progress snapshot -- run `git status --short` for the current list before assuming any of it is finished.
+- Commit history on this branch (oldest to newest of the current run):
   ```
-  M frontend/src/App.jsx                              (Phase 23)
-  M frontend/src/components/CalendarPage.jsx          (Phase 21)
-  M frontend/src/components/EditTransactionModal.jsx  (Phase 22)
-  M frontend/src/components/TransactionsPage.jsx      (Phase 23)
-  M src/api.py                                        (Phase 22)
-  M src/starter_rules.py                              (Phase 22)
+  0a688bd Phase 21 + 22 + 23: calendar timezone, rule shape, edit-save refresh
+  845c1ff Add HANDOFF.md: project state, phase history, pending work, verification checklist
+  0f0e24a Phase A+B: stop data-loss bugs, add test + CI safety net
+  1da9c02 Phase C: authenticate endpoints, migrate category rules to user-scoped DB
+  630141b Phase D (parsers): distinguish PDF failure modes instead of failing silently
+  34131e9 Phase E: envelope encryption (Option A) -- checkpoint with known gaps
+  185e300 FE-CORE: fix A-1, E-9, E-10, E-15 in App.jsx and UploadPage.jsx
+  f885ff3 ENC-UI: fix E-11, E-3-lite, E-8, A-3, C-1 in EncryptionSettings, EditTransactionModal, PlaidConnect
+  08362aa BE: fix E-7, E-12, F-1, F-2, MISC-1, D-2, CONTRACT-3, RULES-DIRECTION, SIGNUP, DEAD in api.py, auth.py, database.py, railway.json
+  1189e60 TESTS-CI: fix E-14, B-3, ENV-5, add test_rules_isolation and its CI step
+  c6c1c72 PARSERS: fix D-5, D-7 in pdf_parser.py and redaction_detector.py
+  a031f22 FE follow-ups: ProfileModal crash, PDF reason messages, unlock-error reset, failed-import visibility
+  f6386c9 Phase 0: extract Plaid/account routers, merge plan-engine schema, add pure-module skeletons
   ```
-- Diff size: 6 files, +44/-9 lines (very small surgical fixes)
+- The five lane commits (`185e300`, `f885ff3`, `08362aa`, `1189e60`, `c6c1c72`) landed 2026-09-13; none are still open.
+- **Phase 0 of the MoneyMap integration** (commit `f6386c9`, 2026-09-27) is the foundational, serial step before Wave 1's parallel lanes: extracted the account CRUD and Plaid/webhook routes out of `api.py` into `src/routes/accounts.py` and `src/routes/plaid.py` (same 36 routes, same paths/methods -- verified via before/after route-count grep); fixed a real bug where `Account.plaid_account_id` had a stale non-unique index that silently collided by name with the intended unique index, replaced with a correctly-scoped partial unique index on `(user_id, plaid_account_id)`; changed `accounts.plaid_item_id`'s FK from `CASCADE` to `SET NULL` so disconnecting a Plaid item keeps the account and its transactions; added the plan/forecast engine schema (`users.timezone`; 9 new `Account` columns; 3 new `Transaction` columns incl. a per-user-unique `plaid_transaction_id`; `Budget.currency`) plus 5 new tables in new `src/plan_models.py` (`plan_settings`, `plan_balances`, `recurring_rules`, `balance_updates`, `plan_events`) and pure dataclass contracts in new `src/plan_types.py`; added signature-only skeletons for Wave 1 to fill in (`money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`) plus a fully-implemented `src/embedding_guard.py`. Wave 1's parallel lanes are running now (see "Working tree" above) -- their scope isn't finalized/merged yet, so it isn't described here.
+- **Latest CI run:** `36344348862` on tip `f6386c9` = **SUCCESS** (verified via `gh run list --branch phase-a-b-fixes`).
+- **CI (history):** pushed to `origin/phase-a-b-fixes` (`git push` confirmed). CI run `34772218177` on then-tip `c6c1c72` = **SUCCESS** -- both the `frontend` job and the `test` job passed, all 7 backend tests green on Linux including the new `tests/test_rules_isolation.py`; this is the first fully green run on this branch (verified via `gh run view 34772218177`). An earlier run, `34768509314` on `34131e9`, **FAILED** at app boot: `asyncpg.exceptions.UndefinedObjectError: type "vector" does not exist` (verified via `gh run view 34768509314 --log-failed`) -- `init_db()` ran `Base.metadata.create_all` before `CREATE EXTENSION vector`, so the `Vector(384)` embedding column's type didn't exist yet when the table was created. Fixed in `08362aa` (F-2): the extension is now created first, in its own transaction, before `create_all` runs.
+- **Correction to the record:** an earlier session claimed the silent-import banner bug (A-1) was fixed and hand-verified. That was wrong -- `UploadPage.jsx` gated the error banner behind `!pendingImport`, so it never rendered once the multi-file import review view was open. Verified fixed in the FE-CORE lane commit (`185e300`): the review view (`pendingImports.length > 0`) now renders its own `uploadStatus.type === 'error'` banner directly (`UploadPage.jsx` ~lines 109-117, comment marked `A-1:`).
 
 ### Services
-- Local: assume DOWN. Run the cookbook in section 4.
-- Production Railway: probably **asleep** (last touched several days ago; hobby tier auto-pauses).
-- Production Vercel: still UP but pointing at the sleeping backend.
+- Local: Docker + Postgres are up (`localhost:5432`, db `spendscope`, user `spendscope`/`spendscope_dev`). Backend/frontend dev servers still need to be started per-session -- see the cookbook in section 4.
+- **onnxruntime is broken on this machine, by Riya's own choice, and is deliberately NOT being fixed.** Any local code path that embeds a plaintext merchant string -- plaintext transaction import, `POST /api/categorize-local` -- returns HTTP 500 locally. Encrypted imports and every other path work fine locally.
+- Plaintext-import / categorize tests therefore only run green in GitHub Actions CI (Linux), not on this machine.
+- Production Railway / Vercel state: not re-verified this session -- see section 1 for last-known URLs, and re-check before assuming either is up.
 
 ### Open todos / queued features (next Claude can pick from)
-1. **Commit + push Phases 21/22/23** -- user said they'd say "commit all" when ready. Do NOT commit unprompted.
-2. **Scale back Rules page UX** -- Phase 14E made it more complex; user wants it simpler.
-3. **Re-categorize stuck "Other" transactions** -- when categorizer was buggy (pre-Phase 22), bad data piled up. Needs a re-run pass.
-4. **Production Railway decision** -- stay at $5/mo or migrate to Hetzner + Coolify.
-5. **Bulk-select / merchant-grouped categorize tool** -- user requested but not built.
-6. **Global 401 interceptor** -- would replace the 3-4 individual session-expired handlers (Coach, Wipe, AccountsListPanel rename, AccountsListPanel delete).
-7. **Multi-bank Plaid dashboard polish.**
-8. **Encrypted-mode blob staleness** (Phase 23 deferred -- only matters when user opts into encryption).
-9. **Other "mutate locally, never refresh" bugs flagged in Phase 23 plan**: EditTransactionModal applyAll siblings; RulesPage apply-rules-to-all; account rename; transaction delete. Same shape as Phase 23 -- await user trigger.
+The full, current deferred list lives in section 10 -- it replaces every item that used to be listed here (Phases 21-23 commit, Rules-page UX, 401 interceptor, etc. are all done or superseded). Read section 10 before picking up new work.
 
 ---
 
@@ -466,8 +489,10 @@ cd frontend && npm run dev
 /d/Projects/spendscope_venv/Scripts/python.exe tests/test_same_bank_dedup.py
 /d/Projects/spendscope_venv/Scripts/python.exe tests/test_edit_persist.py
 /d/Projects/spendscope_venv/Scripts/python.exe tests/test_cat_check.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_rules_isolation.py
+/d/Projects/spendscope_venv/Scripts/python.exe tests/test_encryption.py
 ```
-Each script signs up a fresh user (so the token is always fresh -- avoid the Phase 16 expired-JWT trap).
+Each script signs up a fresh user (so the token is always fresh -- avoid the Phase 16 expired-JWT trap). `test_encryption.py` additionally shells out to Node (`tests/js_harness.mjs`) to drive the real frontend `crypto.js`/`keyManager.js` -- needs Node on PATH.
 
 ### Commit + push (multi-line message)
 ```bash
@@ -482,7 +507,7 @@ Phase 23: TransactionsPage onSave never refreshed from server -- local mutation
 clobbered by encrypted blob decrypt or concurrent setData.
 EOF
 )"
-git push origin claude/focused-knuth
+git push origin phase-a-b-fixes
 ```
 Do NOT add `Co-Authored-By` lines. Do NOT include emojis.
 
@@ -490,24 +515,20 @@ Do NOT add `Co-Authored-By` lines. Do NOT include emojis.
 
 ## 10. Known Pending Bugs / Features
 
+**Rewritten 2026-09-13.** Every item below is what remains open after Phases A-E (and the FE-CORE/ENC-UI/BE/TESTS-CI/PARSERS lane commits) landed. The previous version of this table (Phases 21-23 uncommitted, Rules-page UX, global 401 interceptor, etc.) is entirely resolved or superseded -- see section 5 and the plan file for that history.
+
 | # | Item | Type | Priority | Notes |
 |---|---|---|---|---|
-| 1 | Phases 21+22+23 uncommitted | commit | high | User will say "commit all" when ready. Don't proactively commit. |
-| 2 | Rules page feels too complex (Phase 14E backfired) | UX | medium | User said this directly. Scale back the explainer + preview density. |
-| 3 | "Everything stuck as Other" backfill | data | medium | Bad data accumulated when categorizer was buggy pre-Phase 22. Need a one-time recategorize pass over existing transactions. Currently `/api/categorize-local` only fires on NEW imports. |
-| 4 | Global 401 interceptor | architecture | low | Would replace Phase 16/19's individual handlers. Bigger change touching every fetch. Not now. |
-| 5 | Plaid multi-bank dashboard polish | feature | low | Works but UI is rough when multiple institutions are connected. |
-| 6 | Railway $5/mo vs Hetzner+Coolify | ops decision | medium | User is weighing this. Railway hobby tier sleep is annoying. |
-| 7 | Bulk-select / merchant-grouped categorize tool | feature | medium | User explicitly requested. "Show me all 'TFL' rows, let me set them to Transport in one click." |
-| 8 | Encrypted-mode blob staleness | bug | low | Phase 23 dodged this. Server's plaintext `category` column is authoritative; the encrypted blob's category drifts. Two fixes possible: re-encrypt blob on every PATCH (heavy) OR have `refreshTransactions` prefer plaintext column (cheap). Only matters once user opts into encryption. |
-| 9 | "Mutate locally, never refresh" siblings | bug | low | Same Phase 23 shape in EditTransactionModal applyAll, RulesPage apply-rules-to-all, account rename, transaction delete. Punt until user hits them. |
-| 10 | Recurring Railway auto-sleep | ops | low | Hobby tier pauses. Either upgrade tier OR add a cheap external ping (uptimerobot etc.). User aware. |
-| 11 | Onboarding tour / welcome flow | feature | medium | Never built; new users land on an empty dashboard with no guidance. Deferred from Phase 14. Would help retention. |
-| 12 | Mobile responsive Calendar | UX | medium | `CalendarPage.jsx` is desktop-first; grid breaks on narrow viewports. Deferred from Phase 14B. |
-| 13 | Wider backend account uniqueness key | architecture | low | `src/api.py` `/api/transactions/import` looks up accounts by `(user_id, name)`. Phase 18 took the frontend-only fix (unique default names like "Lloyds - jan"). Long-term, a `(user_id, name, source_filename)` composite would let two files with the same intentional account name coexist when meaningful. |
-| 14 | Phase 7 encryption end-to-end testing | bug | medium | Zero-knowledge encryption code exists (`frontend/src/lib/crypto.js`, `keyManager.js`; backend `/api/auth/encryption-setup`, `/api/auth/verify-recovery`) but Riya never set it up on her own account. The recovery codes flow, the new-tab decrypt flow, and the encrypted-mode blob-staleness bug flagged in Phase 23 are all untested in real use. Audit + smoke-test as a single project before encouraging anyone to opt in. |
-| 15 | `category_rules.json` storage location | architecture | medium | Currently stored as a flat JSON file at `data/processed/category_rules.json` shared across the entire server, not user-scoped, and the POST endpoint has no auth dependency. The `CategoryRule` SQLAlchemy model exists (`src/models.py:119`) but no code path inserts into it. Migration: move all rule reads/writes to the DB table, key them on `user_id`, add auth. Bundle with the Rules-page simplification work. |
-| 16 | Starter rule coverage gaps | data | low | `src/starter_rules.py` has ~80 UK+US merchants; misses lots of common ones (Chopstix, Wagamama overlap, Greggs, Itsu, Pret variants, EE/O2/Three already added but no `british gas` variants, no `npower`/`scottish power`, no `boots`/`superdrug` for Healthcare, no `john lewis`/`debenhams`/`primark`). The longer-term answer is the vector KNN learns from edits -- but pre-deploy a wider starter pack would reduce the cold-start "everything is Other" experience for new users. |
+| 1 | Unauthenticated forgot-password recovery | security/feature | high | Needs hashed recovery codes for server-side auth verification. The client-side envelope scheme (`frontend/src/lib/crypto.js`, `keyManager.js`) wraps the DEK under each recovery code, but there is no server-side verify-recovery endpoint or flow that lets a locked-out user actually regain account access without the password. |
+| 2 | Learned-rules plaintext merchant leak for encrypted users | privacy | high | Server-side rule matching and KNN categorization (`src/categorize_local.py`) still need a plaintext merchant string to match/embed against. An encrypted user's merchant is only ever plaintext transiently at import time -- rules learned afterward can't be matched against the encrypted blob. |
+| 3 | Legacy salt-only accounts | migration | medium | Accounts created before the Phase E envelope redesign have `User.encryption_salt` set but no `User.wrapped_dek`. No migration path from the old direct-PBKDF2 scheme to the new envelope scheme is defined yet. |
+| 4 | Plaid strategy for encrypted users | architecture | medium | Server-side Plaid sync (`src/plaid_service.py`) has no access to the user's DEK and writes plaintext merchant/description. An encrypted user who connects a bank via Plaid gets mixed-mode rows (some encrypted, some plaintext) with no reconciliation logic. Excluded from Phase E scope by design (Riya's call); must be resolved before Plaid ships to encrypted users. |
+| 5 | Phase F hosting migration | ops | medium | Neon (Postgres) + Cloud Run + Cloudflare R2, per the plan file's Phase F section. Needs Riya's own accounts (billing/signup); nothing has been provisioned yet. |
+| 6 | Real PDF bank-statement fixtures | test coverage | medium | `data/raw/fixtures/` (gitignored) has never held a real statement. The Lloyds and Bank of America PDF parsers have no regression net against real-world formatting variance. |
+| 7 | Manual end-to-end encryption test | verification | high | Sign up -> enable encryption -> import -> close the tab -> log back in -> data still readable. Then: forget the password -> recover with a code -> data still readable. This is the test the whole Phase E redesign exists to pass, and it has still never been run by a human. |
+| 8 | Deliberate break-CI test | verification | low | Push a known-bad change and confirm `.github/workflows/ci.yml` actually goes red. Never run -- CI going green has only ever been observed on passing code. |
+| 9 | MoneyMap integration | integration | high | Merging Riya's friend's MoneyMap (cash-flow/debt planner) into SpendScope as one app. Phase 0 (foundational schema + router extraction, commit `f6386c9`) is committed -- see section 6. Wave 1's parallel lanes (filling in the `money.py`/`timeutil.py`/`plaid_privacy.py`/`plaid_sync.py`/`plaid_fake.py` skeletons and new frontend pages) are running now, uncommitted, in this worktree; scope not final -- run `git status --short` for the current state before assuming anything below Phase 0 is finished. |
+| 10 | onnxruntime broken locally (VC++ redistributable) | environment | low | Local `onnxruntime` import fails because of a broken/missing Visual C++ redistributable on this machine -- this is what makes any local code path that embeds a plaintext merchant string (plaintext import, `POST /api/categorize-local`) return HTTP 500 locally (see section 6, Services). By Riya's own choice, this is deliberately NOT being fixed on this machine; CI (Linux) is unaffected and is the only place plaintext-import/categorize tests currently run green. |
 
 ---
 
@@ -518,20 +539,17 @@ Run these in order. If any check fails, STOP and investigate before doing anythi
 ### Git state
 ```bash
 cd /d/Projects/SpendScope/.claude/worktrees/focused-knuth
-git status --short
-# Expected:
-#  M frontend/src/App.jsx
-#  M frontend/src/components/CalendarPage.jsx
-#  M frontend/src/components/EditTransactionModal.jsx
-#  M frontend/src/components/TransactionsPage.jsx
-#  M src/api.py
-#  M src/starter_rules.py
-
 git rev-parse HEAD
-# Expected: 9dd36b4...
+# Expected: f6386c9...
 
 git rev-parse --abbrev-ref HEAD
-# Expected: claude/focused-knuth
+# Expected: phase-a-b-fixes
+
+git status --short
+# NOT expected to be clean or to match any fixed list -- Wave 1 (MoneyMap integration) lanes
+# run concurrently in this worktree, and this docs pass itself touches HANDOFF.md/README.md/
+# setup/kt.md/setup/structure.md. Read the output, don't diff it against a hardcoded list;
+# see section 6 for what's in flight as of this writing.
 ```
 
 ### Phase 21 fix in working tree
@@ -579,7 +597,7 @@ curl -s http://127.0.0.1:8000/
 # Expected: {"status":"SpendScope API is running"}
 
 curl -s http://127.0.0.1:8000/openapi.json | python -c "import json,sys; print(len(json.load(sys.stdin)['paths']))"
-# Expected: 37
+# Expected: 31
 
 curl -s -X POST http://127.0.0.1:8000/api/categorize-local -o /dev/null -w "%{http_code}\n"
 # Expected: 401
@@ -611,7 +629,8 @@ docker exec spendscope_db psql -U spendscope -d spendscope -c "\dt" | grep plaid
 ### Route table (sanity)
 ```bash
 grep -n "^@app\." src/api.py | wc -l
-# Expected: 37 (or thereabouts)
+# Expected: 26 -- Phase 0 (f6386c9) extracted the other 10 into src/routes/accounts.py (4) and
+# src/routes/plaid.py (6); grep those too if you want the full 36.
 ```
 
 ### Old Claude endpoints are gone
@@ -623,7 +642,9 @@ grep -nE "coaching/plan|plan-stream|plan-cached|ANTHROPIC|ai_coach" src/api.py
 ### E2E tests present (tracked in git, run by CI)
 ```bash
 ls tests/test_*.py
-# Expected: tests/test_cat_check.py tests/test_edit_persist.py tests/test_multi_upload.py tests/test_same_bank_dedup.py tests/test_wipe.py
+# Expected (7 files): tests/test_cat_check.py tests/test_edit_persist.py tests/test_encryption.py
+# tests/test_multi_upload.py tests/test_rules_isolation.py tests/test_same_bank_dedup.py tests/test_wipe.py
+# (tests/cleanup.py is an 8th file in tests/ -- a shared helper, not a test; see section 3)
 
 # Run one as a smoke check (requires backend up):
 /d/Projects/spendscope_venv/Scripts/python.exe tests/test_cat_check.py
@@ -667,47 +688,65 @@ This caveat is specific to this Claude Code build/version. May be fixed in futur
 
 ## 13. Where to Look for Specifics
 
-### Backend routes (`src/api.py`, 1225 lines)
+**Backend routes table rewritten 2026-09-28** from `grep -n '^@app\.' src/api.py` + `grep -n '^@router\.' src/routes/accounts.py src/routes/plaid.py`, after Phase 0 (`f6386c9`) extracted the account CRUD and Plaid/webhook routes out of `api.py` into `src/routes/`. Same 36 routes/paths/methods as before Phase 0 -- just split across three files now. Re-run the greps before trusting this table too, and see the note in section 3 (`src/routes/` etc. added there).
+
+*(36 routes across three files, but the live OpenAPI schema only reports 31 unique paths -- 5 paths carry two methods each: `GET`+`PUT /api/auth/me`, `GET`+`POST /api/category-rules`, `PATCH`+`DELETE /api/category-rules/{rule_id}`, `GET`+`POST /api/accounts`, `PATCH`+`DELETE /api/accounts/{account_id}`. Verified via `app.openapi()['paths']` in a Python shell, no DB needed.)*
+
+### Backend routes (`src/api.py`, 903 lines, 26 routes)
 | Line | Method | Path |
 |---|---|---|
-| 41 | GET | `/` (health) |
-| 48 | POST | `/api/auth/signup` |
-| 82 | POST | `/api/auth/login` |
-| 103 | GET | `/api/auth/me` |
-| 119 | PUT | `/api/auth/me` |
-| 142 | POST | `/api/auth/encryption-setup` |
-| 164 | POST | `/api/auth/verify-recovery` |
-| 187 | GET | `/api/transactions` |
-| 222 | POST | `/api/transactions/import` |
-| 313 | helper | `_apply_txn_patch` (shared by single PATCH + batch-update) |
-| 351 | PATCH | `/api/transactions/{txn_id}` |
-| 369 | PATCH | `/api/transactions/{txn_id}/category` (legacy alias) |
-| 375 | POST | `/api/transactions/batch-update` |
-| 404 | GET | `/api/import-batches` |
-| 422 | DELETE | `/api/import-batches/{batch_id}` |
-| 438 | POST | `/api/account/wipe-data` |
-| 486 | GET | `/api/accounts` |
-| 499 | POST | `/api/accounts` |
-| 523 | PATCH | `/api/accounts/{account_id}` |
-| 556 | DELETE | `/api/accounts/{account_id}` |
-| 580 | GET | `/api/summary` |
-| 608 | POST | `/api/upload-csv` |
-| 648 | GET | `/api/coaching/stats` |
-| 672 | POST | `/api/categorize-local` |
-| 737 | GET | `/api/category-rules` |
-| 742 | POST | `/api/category-rules` |
-| 752 | PUT | `/api/category-rules/{rule_id}` |
-| 765 | DELETE | `/api/category-rules/{rule_id}` |
-| 775 | helper | `_match_rule` (Phase 22 fix lives here) |
-| 807 | POST | `/api/categorize` (legacy bulk apply) |
-| 827 | POST | `/api/upload-csv-mapped` |
-| 853 | POST | `/api/upload-pdf` |
-| 1038 | POST | `/api/plaid/link-token` |
-| 1050 | POST | `/api/plaid/exchange-token` |
-| 1107 | POST | `/api/plaid/sync` |
-| 1147 | GET | `/api/plaid/items` |
-| 1167 | DELETE | `/api/plaid/items/{item_id}` |
-| 1198 | POST | `/webhooks/plaid` |
+| 54 | GET | `/` (static string, no DB check) |
+| 59 | GET | `/health` (pings the DB with `SELECT 1`; this is what `railway.json`'s healthcheck targets) |
+| 70 | POST | `/api/auth/signup` |
+| 104 | POST | `/api/auth/login` |
+| 127 | GET | `/api/auth/me` |
+| 144 | PUT | `/api/auth/me` |
+| 167 | POST | `/api/auth/encryption-setup` |
+| 194 | POST | `/api/auth/change-password` |
+| 231 | GET | `/api/transactions` (optional auth) |
+| 266 | POST | `/api/transactions/import` |
+| 374 | helper | `_apply_txn_patch` (shared by single PATCH + batch-update) |
+| 450 | PATCH | `/api/transactions/{txn_id}` |
+| 468 | PATCH | `/api/transactions/{txn_id}/category` (legacy alias) |
+| 474 | POST | `/api/transactions/batch-update` |
+| 503 | GET | `/api/import-batches` |
+| 521 | DELETE | `/api/import-batches/{batch_id}` |
+| 537 | POST | `/api/account/wipe-data` |
+| 562 | POST | `/api/upload-csv` (requires auth -- Phase C closed finding 2.3) |
+| 602 | GET | `/api/coaching/stats` |
+| 626 | POST | `/api/categorize-local` |
+| 696 | GET | `/api/category-rules` (requires auth) |
+| 705 | POST | `/api/category-rules` (requires auth) |
+| 726 | PATCH | `/api/category-rules/{rule_id}` (was PUT; requires auth) |
+| 751 | DELETE | `/api/category-rules/{rule_id}` (requires auth) |
+| 767 | helper | `_match_rule` |
+| 799 | POST | `/api/categorize` (legacy bulk apply; requires auth) |
+| 822 | POST | `/api/upload-csv-mapped` (requires auth) |
+| 848 | POST | `/api/upload-pdf` (requires auth) |
+
+### Backend routes (`src/routes/accounts.py`, 4 routes -- extracted from `api.py` in Phase 0)
+Line count and per-route line numbers omitted -- Wave 1 is actively modifying this file (see section 6); run `grep -n "^@router\." src/routes/accounts.py` for current line numbers.
+| Method | Path |
+|---|---|
+| GET | `/api/accounts` |
+| POST | `/api/accounts` |
+| PATCH | `/api/accounts/{account_id}` |
+| DELETE | `/api/accounts/{account_id}` |
+
+### Backend routes (`src/routes/plaid.py`, 6 routes -- extracted from `api.py` in Phase 0)
+Line count and per-route line numbers omitted -- Wave 1 is actively modifying this file (see section 6); run `grep -n "^@router\." src/routes/plaid.py` for current line numbers.
+| Method | Path |
+|---|---|
+| POST | `/api/plaid/link-token` |
+| POST | `/api/plaid/exchange-token` |
+| POST | `/api/plaid/sync` |
+| GET | `/api/plaid/items` |
+| DELETE | `/api/plaid/items/{item_id}` |
+| POST | `/webhooks/plaid` |
+
+**Still gone:** `GET /api/summary` and `POST /api/auth/verify-recovery` don't exist anywhere in `src/api.py` or `src/routes/` -- neither appears in any of the greps above. If something in this doc still references either, treat that reference as stale.
+
+**NOT re-verified this session:** the "Frontend state", "Categorization" (frontend half), and "Where state lives" subsections below carry `App.jsx` line numbers from before the FE-CORE (`185e300`) and ENC-UI (`f885ff3`) lane commits touched `App.jsx` and the encryption UI. Re-grep `App.jsx` before trusting a specific line number there. The two backend line references inside "Categorization" below have been corrected.
 
 ### Frontend state (`App.jsx`)
 - Main state hooks: lines 23-67 (20+ `useState` calls)
@@ -721,11 +760,11 @@ This caveat is specific to this Claude Code build/version. May be fixed in futur
 
 ### Categorization
 - Frontend entry: `App.jsx::localCategorizeAndImport` -- called from CSV import, PDF import, column mapper, fallback paths
-- Backend entry: `POST /api/categorize-local` (`src/api.py:672`)
+- Backend entry: `POST /api/categorize-local` (`src/api.py:626`)
 - Model: `src/categorize_local.py::_get_model` (lazy fastembed singleton)
 - KNN: `src/categorize_local.py::categorize_by_neighbors` -- cosine via `<=>`, filtered to `category_source='manual'`
 - Starter pack: `src/starter_rules.py::STARTER_RULES` (OUT-only)
-- Rule matcher: `src/api.py::_match_rule` (Phase 22 fix at line 775-789)
+- Rule matcher: `src/api.py::_match_rule` (`src/api.py:767`)
 
 ### Where to extend
 - **Add a backend endpoint:** append in `src/api.py`, mirror an existing auth-protected route (use `Depends(get_current_user)` pattern).

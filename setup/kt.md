@@ -47,8 +47,7 @@ Production:
 Docker:
   Dockerfile -> python:3.13-slim, non-root user, requirements.prod.txt
   .dockerignore -> excludes frontend/, .env, test data, .claude/
-  Procfile -> Railway/Heroku process definition
-  railway.json -> Railway deployment config (Dockerfile builder, health check on /)
+  railway.json -> Railway deployment config (Dockerfile builder, health check on /health -- moved from / in 08362aa/F-1)
   frontend/vercel.json -> Vercel SPA config (vite framework, rewrites to index.html)
 ```
 
@@ -95,6 +94,28 @@ npm run dev
 15. **Stats coach replaces LLM coach** (Phase 12): `src/stats_coach.py` is deterministic Python (savings rate, monthly avg, top categories/merchants, projected EOM, daily allowance, week-over-week, encouragement). ~20ms for 10k txns, no API key, no streaming. Path A (local Ollama LLM) deferred -- adds onboarding friction for marginal benefit over hard numbers.
 16. **Zero outbound calls to Anthropic** (Phase 12): `src/ai_coach.py` deleted (501 lines), `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` removed from .env + .env.example, `_coach_cache` / `COACH_CACHE_TTL` / `StreamingResponse` import removed from api.py. The httpx package stays only because Plaid uses it (and Plaid is opt-in -- manual CSV/PDF upload remains the privacy-max alternative).
 
+## Phase 13-23 + A-E Summary (appended 2026-09-13, source: `git log --oneline`)
+
+Note: the "API Endpoints" table below (now titled "Historical") and the "9. UK-only merchant mapping" / model counts elsewhere in this file predate everything in this section. **Corrected counts:** `src/api.py` is 903 lines with 26 routes (verified via `grep -c '@app\.' src/api.py`); the other 10 routes (account CRUD + Plaid/webhook) were extracted into `src/routes/accounts.py` and `src/routes/plaid.py` by Phase 0 of the MoneyMap integration (commit `f6386c9` -- see `HANDOFF.md` section 6), so it's 36 routes total across all three files. `src/models.py` has 8 SQLAlchemy models (added `PlaidItem`). Full current route table lives in `HANDOFF.md` section 13 -- treat the table below as historical only.
+
+17. **Phase 13 -- production deploy hardening** (`761c203`, `1cf6d24`, `1665720`): Dockerfile bakes the fastembed model at build and adds `libgomp1`; Railway's Postgres image switched to `pgvector/pgvector:pg16`; startup migration block backfilled with the Phase 7 (`users.encryption_salt`/`recovery_codes_hash`, `transactions.encrypted_data`) + Phase 9 (`import_batches.plaid_item_id`) ALTERs that earlier deploys had missed (verified via `git show 1cf6d24` -- Phase 10/12's own ALTERs were already present from their own commits; nothing to backfill there).
+
+18. **Phase 14A-14E -- production polish** (`0348713`, `4c56617`, `1a90a9d`, `a6c1976`, `548463a`): fixed the `ALL_CATEGORIES` dropdown (derive from `CAT_COLORS` instead of a stale hardcoded list), rewrote Calendar as daily-spend cells with a subscription overlay, moved the cash-flow forecast above the fold, rebuilt Coach as a ranked action tracker, and added Rules-page UX polish that later proved to be the wrong direction (see decision 22).
+
+19. **Phase 16-20 -- multi-file upload + account management** (`9dd36b4`): 401/session-expired handling on Coach and Wipe actions; multi-file upload rewritten around a `pendingImports` array; new `AccountsListPanel.jsx`; fixed same-bank multi-file imports silently merging into one account; fixed a sticky-header overlap caused by a hex-alpha background.
+
+20. **Phase 21+22+23 -- timezone, rule-shape, and refresh bugs** (`0a688bd`): Calendar's forward arrow used a UTC-based date slice and froze in positive-offset timezones (fixed with integer year/month math); a category rule with an empty `match_value` matched every merchant (fixed by treating empty as no-match); the transaction edit modal's save handler never refreshed from the server after a local mutation (fixed by calling `refreshTransactions()`).
+
+21. **Phase A+B -- stop data-loss bugs, add a real test/CI safety net** (`0f0e24a`): a whole-codebase audit (see the plan file) found encryption silently auto-enabling on every signup with no way to disable it, a destructive "Apply Rules to All" button that overwrote every category including manual ones, and expired-session 401s that silently left imports as "Other" instead of failing loudly. Also: the `_test_*.py` scripts were gitignored and never ran in CI; moved into tracked `tests/`, made to `sys.exit(1)` on failure, and wired into a new `.github/workflows/ci.yml`.
+
+22. **Phase C -- authenticate rules/upload endpoints, migrate rules to the DB** (`1da9c02`): category rules had been a single server-wide JSON file with unauthenticated read/write endpoints -- any user could read or corrupt any other user's learned rules. Moved rules into the `category_rules` table scoped by `user_id`, added a `direction` column, and put auth on every rules/upload endpoint and `/api/categorize`.
+
+23. **Phase D -- honest PDF failure modes** (`630141b`): `pdf_parser.py` used to return zero transactions with no explanation for a bank it recognized-but-couldn't-parse, or for a scanned/image PDF -- indistinguishable from "unknown format". Now returns a distinct `reason` (`parsed`/`no_parser`/`scanned`/`unknown_bank`/`open_error`). Still only Lloyds and Bank of America are actually parsed -- CSV (24 templates) remains the universal path. **Correction:** `parsed_empty` (a recognized bank whose parser found zero rows) was NOT part of this commit -- it was added later by the PARSERS lane commit `c6c1c72` (verified via `git log -S"parsed_empty" -- src/parsers/pdf_parser.py`, one hit, `c6c1c72`).
+
+24. **Phase E -- envelope encryption, Option A** (`34131e9` checkpoint, refined by lane commits `185e300`/`f885ff3`/`08362aa` on 2026-09-13): the prior encryption design derived one key directly from the password, so a recovery code (which derives a *different* key) could never open the data -- recovery was broken by construction. Rebuilt as envelope encryption: a random DEK encrypts `merchant` + `description` only, wrapped once under a password-derived key and once per recovery code, so any valid credential unwraps the same DEK. Single source of truth for which fields are encrypted (`ENCRYPTED_FIELDS` in `crypto.js`) plus a version tag on every payload (`PAYLOAD_VERSION`) so the field set can widen later (Option C) without a rewrite -- this was an explicit hard requirement from Riya. Known gaps (no server-side recovery verification, Plaid writes plaintext for encrypted users, legacy salt-only accounts have no migration path) are tracked in `HANDOFF.md` section 10.
+
+25. **Migration ordering + fail-loud startup** (BE lane, `08362aa`, F-2/MISC-1): `src/database.py::init_db` used to run `CREATE EXTENSION IF NOT EXISTS vector` as the last item in the ALTER list, after `metadata.create_all` -- fragile, since `models.py` declares a `Vector(384)` column whose type must exist before `create_all` can create the table (this is exactly what broke CI run `34768509314`: `asyncpg.exceptions.UndefinedObjectError: type "vector" does not exist`). Reordered: the extension is created first in its own transaction, then `create_all`, then every ALTER/CREATE INDEX statement in its own transaction. Each statement that fails now logs `[migration] FAILED: <stmt>` and **re-raises** (was: one shared transaction, print-only, silently continued) -- a broken migration now fails the boot instead of reporting healthy. Same commit replaced `@app.on_event("startup")` with a `lifespan` asynccontextmanager passed to `FastAPI(lifespan=...)` (MISC-1; `init_db()` still runs once at startup), and added `GET /health` (F-1) which runs `SELECT 1` through `get_db`, with `railway.json`'s healthcheck now pointed at `/health` instead of `/`.
+
 ## Roadmap (Active Plan)
 See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
 - M0: Documentation (this file) -- DONE
@@ -108,7 +129,7 @@ See `C:\Users\riyaw\.claude\plans\robust-scribbling-bengio.md` for full plan.
 - Phase 11: Editable Transactions -- DONE
 - Phase 12: Local Vector Categorization + Stats Coach (Claude removal) -- DONE
 
-## API Endpoints (Current)
+## API Endpoints (Historical -- see HANDOFF.md section 13 for the current table)
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Health check |

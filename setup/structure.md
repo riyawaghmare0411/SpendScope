@@ -6,13 +6,24 @@ SpendScope/
 ├── setup/
 │   ├── kt.md                          # Knowledge transfer doc (this project's rules + architecture)
 │   └── structure.md                    # This file (file reference + changelog)
-├── docker-compose.yml                    # PostgreSQL 16-alpine container config
+├── docker-compose.yml                    # pgvector/pgvector:pg16 container config (switched from postgres:16-alpine in Phase 12A -- same Postgres 16 internals, volume reused)
 ├── src/
 │   ├── __init__.py                       # Package init
-│   ├── api.py                          # FastAPI backend (193 lines) -- endpoints, PDF parser, CORS
+│   ├── api.py                          # FastAPI backend (903 lines, 26 routes -- verified via `grep -c '@app\.' src/api.py`; 10 more extracted to src/routes/ by Phase 0, 36 total) -- auth, transactions, category rules, CSV/PDF upload, coaching stats
 │   ├── database.py                     # Async SQLAlchemy engine, sessions, Base
-│   ├── models.py                       # 7 models: User, Account, ImportBatch, Transaction, CategoryRule, Budget, CsvTemplate
+│   ├── models.py                       # 8 models: User, Account, ImportBatch, Transaction, CategoryRule, Budget, CsvTemplate, PlaidItem
 │   ├── auth.py                         # JWT + bcrypt auth, FastAPI dependencies, Pydantic schemas
+│   ├── routes/                         # Phase 0 (commit f6386c9): account CRUD + Plaid/webhook routes extracted out of api.py
+│   │   ├── accounts.py                 # 4 routes -- account CRUD (line count omitted -- Wave 1 is actively modifying this file)
+│   │   └── plaid.py                    # 6 routes -- link-token, exchange-token, sync, items, webhook (line count omitted -- Wave 1 is actively modifying this file)
+│   ├── plan_types.py                   # 168 lines, pure dataclasses, no SQLAlchemy (Phase 0) -- frozen contract for the plan/forecast engine
+│   ├── plan_models.py                  # 113 lines, SQLAlchemy ORM (Phase 0) -- 5 new tables: plan_settings, plan_balances, recurring_rules, balance_updates, plan_events
+│   ├── embedding_guard.py              # 18 lines, fully implemented (Phase 0) -- guards categorize_local.embed_text against the broken-locally onnxruntime dependency
+│   ├── money.py                        # Phase 0 skeleton, Wave 1 filling in now (uncommitted) -- decimal money handling for the plan engine
+│   ├── timeutil.py                     # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
+│   ├── plaid_privacy.py                # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
+│   ├── plaid_sync.py                   # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
+│   ├── plaid_fake.py                   # Phase 0 skeleton, Wave 1 filling in now (uncommitted)
 │   └── parsers/
 │       ├── __init__.py                 # Parser module init
 │       ├── csv_parser.py               # Template-based CSV parser with auto-detection
@@ -63,10 +74,9 @@ SpendScope/
 ├── .gitignore                          # Ignores: node_modules, venv, .env, data/raw, data/processed, .claude
 ├── .dockerignore                       # Excludes frontend, env files, test data, Claude files from Docker build
 ├── Dockerfile                          # Production Docker image (python:3.13-slim, non-root user, requirements.prod.txt)
-├── Procfile                            # Railway/Heroku process definition
-├── railway.json                        # Railway deployment config (Dockerfile builder, health check on /)
+├── railway.json                        # Railway deployment config (Dockerfile builder, health check on /health -- moved from / in 08362aa/F-1)
 ├── README.md                           # Full project documentation (setup, deployment, API reference)
-├── requirements.txt                    # 116 Python packages (FastAPI, PyMuPDF, pandas, jupyter, etc.)
+├── requirements.txt                    # 132 Python packages (FastAPI, PyMuPDF, pandas, jupyter, etc.)
 ├── requirements.prod.txt               # Slim production dependencies (no Jupyter/Windows packages)
 └── .claude/
     └── settings.local.json             # Claude Code permission settings
@@ -76,7 +86,7 @@ SpendScope/
 
 ### src/api.py
 - FastAPI app with CORS middleware
-- 5 endpoints: health, transactions, summary, upload CSV, upload PDF
+- **Corrected 2026-09-28 (Phase 0, commit `f6386c9`):** 903 lines, 26 routes (verified via `grep -c '@app\.' src/api.py`) -- auth, transactions, import batches, account wipe, CSV/PDF upload (all now auth-required), coaching stats, categorize-local, category rules (auth-required), legacy bulk categorize. Account CRUD (4 routes) and Plaid link/exchange/sync/items + webhook (6 routes) were extracted into `src/routes/accounts.py` and `src/routes/plaid.py` -- 36 routes total across all three files. Full line-by-line table in `HANDOFF.md` section 13.
 - PDF parser: state machine for Lloyds bank format (date/description/type/money_in/money_out/balance)
 - Reads from `data/processed/transactions_frontend.json`
 - Dependencies: fastapi, fitz (PyMuPDF), uvicorn
@@ -98,7 +108,7 @@ SpendScope/
 - Core: fastapi, uvicorn, PyMuPDF, pydantic, python-multipart
 - Data: pandas, numpy, openpyxl
 - Notebooks: jupyter, jupyterlab, ipython
-- 116 total packages (many are transitive jupyter deps)
+- 132 total packages (many are transitive jupyter deps)
 
 ## External Dependencies
 - **Venv**: `D:\Projects\spendscope_venv` (Python 3.13.12, sibling directory)
@@ -108,6 +118,36 @@ SpendScope/
 ---
 
 ## Changelog
+
+### 2026-09-27 -- Phase 0 of the MoneyMap integration: router extraction, plan-engine schema, pure-module skeletons (commit f6386c9)
+Foundational, serial step before Wave 1's parallel lanes. Extracted the account CRUD and Plaid/webhook routes out of `src/api.py` into new `src/routes/accounts.py` and `src/routes/plaid.py` (byte-identical bodies, same 36 routes/paths/methods -- verified via before/after route-count grep). Fixed a real bug found during reconciliation: `Account.plaid_account_id` had a stale non-unique index colliding by name with the intended unique index, so there was no real uniqueness enforcement on Plaid account ids -- replaced with a correctly-scoped partial unique index on `(user_id, plaid_account_id)`; also changed `accounts.plaid_item_id`'s FK from `CASCADE` to `SET NULL` so disconnecting a Plaid item keeps the account and its transactions, matching existing UI copy. Added schema for the plan/forecast engine: `users.timezone`; 9 new `Account` columns (`kind`, `counts_as_cash`, `statement_balance`, `minimum_payment`, `next_due_date`, `apr_bps`, `balance_as_of`, `term_months`, `balance_source`); 3 new `Transaction` columns (`plaid_transaction_id` unique-per-user, `pending`, `currency`); `Budget.currency` (budgets had zero server routes and were 100% localStorage-driven -- gap found during reconciliation). New `src/plan_models.py` (5 new tables: `plan_settings`, `plan_balances`, `recurring_rules`, `balance_updates`, `plan_events`) and `src/plan_types.py` (pure dataclasses, no SQLAlchemy) as the frozen contract every pure logic module imports against. New signature-only skeletons for Wave 1 to fill in: `money.py`, `timeutil.py`, `plaid_privacy.py`, `plaid_sync.py`, `plaid_fake.py`. New `src/embedding_guard.py`, fully implemented, wraps `categorize_local.embed_text` so a Plaid sync never 500s just because the local ONNX embedder is unavailable. Wave 1's parallel lanes are in progress in this worktree as of this entry (uncommitted) -- see `HANDOFF.md` section 6 for how to check current state.
+
+### 2026-09-13 -- Lane fixes: FE-CORE, ENC-UI, BE, TESTS-CI, PARSERS (commits 185e300, f885ff3, 08362aa, 1189e60, c6c1c72)
+Five parallel-lane commits closing out remaining items from the Phase A-E audit. FE-CORE (`App.jsx`, `UploadPage.jsx`) fixed A-1 (the silent-import error banner was gated behind `!pendingImport` and never rendered during multi-file review) plus E-9/E-10/E-15. ENC-UI (`EncryptionSettings.jsx`, `EditTransactionModal.jsx`, `PlaidConnect.jsx`) fixed E-11/E-3-lite/E-8/A-3/C-1. BE (`api.py`, `auth.py`, `database.py`, `railway.json`) fixed E-7/E-12/F-1/F-2/MISC-1/D-2/CONTRACT-3/RULES-DIRECTION/SIGNUP/DEAD -- F-2 reordered `init_db()` to create the `vector` extension before `metadata.create_all` (previously last, after create_all, in one shared migration list -- this exact ordering bug is what failed CI run `34768509314` at boot with `type "vector" does not exist`) and split every ALTER/CREATE INDEX into its own transaction that logs `[migration] FAILED: <stmt>` and re-raises instead of printing and continuing silently; MISC-1 replaced `@app.on_event("startup")` with a `lifespan` asynccontextmanager; F-1 added `GET /health` (pings the DB via `SELECT 1`) with `railway.json`'s healthcheck now pointed at it instead of `/`. TESTS-CI (`.github/workflows/ci.yml`, `requirements.txt`, `tests/*`) fixed E-14/B-3/ENV-5 and added `tests/test_rules_isolation.py` plus its CI step. PARSERS (`pdf_parser.py`, `redaction_detector.py`) fixed D-5 (deleted the dead, 0-caller `detect_pdf_redactions()`) and D-7 (Lloyds/BofA parsers now return dropped-row counts + warnings instead of silently coercing bad dates/amounts to 0; a recognized bank whose parser finds zero rows now reports `reason: "parsed_empty"` instead of `"parsed"` -- this is where `parsed_empty` was actually introduced, not Phase D's `630141b`, verified via `git log -S"parsed_empty" -- src/parsers/pdf_parser.py`).
+
+### 2026-09-13 -- Phase E: envelope encryption, Option A (commit 34131e9, checkpoint with known gaps)
+Rebuilt encryption as envelope encryption: a random per-user DEK encrypts `merchant` + `description` only (Option A); the DEK is wrapped once under a password-derived KEK and once per recovery code, so any valid password or recovery code unwraps the same DEK (`frontend/src/lib/crypto.js`, `keyManager.js`). Added `User.wrapped_dek` (versioned JSON payloads via `PAYLOAD_VERSION`/`ENCRYPTED_FIELDS`); `recovery_codes_hash` is deprecated in place, not dropped. Known gaps tracked in `HANDOFF.md` section 10 and the plan file's Phase E section (no server-side recovery verification yet, Plaid writes plaintext for encrypted users, legacy salt-only accounts have no migration path).
+
+### 2026-07-23 -- Phase D (parsers): honest PDF failure modes (commit 630141b)
+`src/parsers/pdf_parser.py` now returns a distinct `reason` (`parsed`, `no_parser`, `scanned`, `unknown_bank`, `open_error`) instead of silently returning zero transactions for a recognized-but-unsupported bank or a scanned/image-only PDF. `parser_map` still only implements Lloyds and Bank of America -- CSV (24 templates) remains the universal path; PDF is a convenience for those two banks only. (`parsed_empty` was added later, by the PARSERS lane commit `c6c1c72` -- see the 2026-09-13 entry below.)
+
+### 2026-07-23 -- Phase C: authenticate endpoints + rules migration (commit 1da9c02)
+Added auth (`Depends(get_current_user)`) to the category-rules CRUD endpoints, the three upload endpoints, and `/api/categorize`. Migrated category rules from a shared `data/processed/category_rules.json` file to the `category_rules` DB table, scoped by `user_id`, and added a `direction` column. Rules page rebuilt as a user-scoped list/edit/delete view backed by the new endpoints.
+
+### 2026-07-22 -- Phase A+B: stop data-loss bugs, add test + CI safety net (commit 0f0e24a)
+Removed the unconditional encryption auto-enable on signup, removed the `categorizeWithRules` "Apply Rules to All Transactions" destructive button (kept the underlying stub -- 6 other call sites depend on it), and added `r.ok`/401 handling so an expired session fails loudly instead of silently leaving an import as "Other". Moved the throwaway `_test_*.py` scripts into tracked `tests/`, made them `sys.exit(1)` on failure, and added `.github/workflows/ci.yml`.
+
+### 2026-07-15 -- Phase 21 + 22 + 23: calendar timezone, rule shape, edit-save refresh (commit 0a688bd)
+Phase 21: `CalendarPage.jsx`'s forward-arrow used `toISOString().slice(0,7)`, which crossed a UTC day boundary in positive-offset timezones and froze the arrow; fixed with integer year/month math. Phase 22: a category rule with an empty `match_value` matched every merchant (`_match_rule` defaulted to `contains ""`), so one corrupted rule branded an entire dataset; fixed by treating empty `match_value` as no-match. Phase 23: `TransactionsPage`'s save handler mutated local state but never refreshed from the server, so edits appeared to revert; it now calls `refreshTransactions()` after saving.
+
+### 2026-05-18 -- Phase 16-20: multi-file upload, AccountsListPanel, session-expired handlers, sticky-header fix (commit 9dd36b4)
+Phase 16: 401-on-expired-JWT handling added to Coach and Wipe actions. Phase 17: multi-file upload rewritten around a `pendingImports` array (was single `pendingImport`), with a new `AccountsListPanel.jsx` (202 lines) for rename/delete/open. Phase 18: fixed same-bank multi-file imports silently merging into one account, and AccountsListPanel "Open" routing to an empty Transactions view. Phase 19: same 401-handling pattern applied to AccountsListPanel actions. Phase 20: fixed a sticky-header/first-row overlap in the review modal caused by a hex-alpha background.
+
+### 2026-04-28 -- Phase 14A-14E: production polish (commits 0348713, 4c56617, 1a90a9d, a6c1976, 548463a)
+14A: fixed `ALL_CATEGORIES` dropdown (was hardcoded and missing 9 of 30 categories; now derived from `CAT_COLORS`). 14B: rewrote Calendar as daily-spend cells colored by percent of daily allowance, with subscription-due dots overlaid. 14C: moved the cash-flow forecast chart above the fold. 14D: rebuilt Coach as a ranked action tracker instead of a stats dashboard. 14E: added Rules-page UX (explainer, worked example, rule preview) -- Riya later said this made the page feel more complex, and it was effectively superseded by Phase C's simpler rebuild.
+
+### 2026-04-27 -- Phase 13: production deploy hardening (commits 761c203, 1cf6d24, 1665720)
+Hardened the Dockerfile for production (model baked in at build, `libgomp1` for ONNX runtime), switched the Railway Postgres image to `pgvector/pgvector:pg16`, and backfilled the Phase 7 (`users.encryption_salt`/`recovery_codes_hash`, `transactions.encrypted_data`) + Phase 9 (`import_batches.plaid_item_id`) `ALTER TABLE` statements into the startup migration block that earlier deploys had missed (verified via `git show 1cf6d24` -- Phase 10/12's own ALTERs were already present from their own commits).
 
 ### 2026-04-27 -- Phase 11 + Phase 12: Editable Transactions + Local Vector Categorization + Stats Coach (commit d8f33ea)
 - **Phase 11 -- Editable Transactions**
@@ -152,7 +192,6 @@ SpendScope/
 - Dockerfile: production image using python:3.13-slim, non-root user, installs from requirements.prod.txt
 - requirements.prod.txt: slim production dependencies (excludes Jupyter, Windows-only packages)
 - .dockerignore: excludes frontend/, .env, test data, .claude/ from Docker build context
-- Procfile: Railway/Heroku process definition for backend
 - railway.json: Railway deployment config (Dockerfile builder, health check on /)
 - frontend/vercel.json: Vercel SPA config (vite framework, rewrites all routes to index.html)
 - README.md: full project documentation with local setup, Docker usage, deployment instructions, API reference

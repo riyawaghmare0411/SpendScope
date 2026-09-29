@@ -1,11 +1,57 @@
 import os
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://spendscope:spendscope_dev@localhost:5432/spendscope")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", ""}
+
+
+def _normalize_db_url(url: str) -> tuple[str, dict]:
+    """Accept the connection string a managed Postgres hands you, unedited.
+
+    Hosted providers (Neon, Supabase, RDS) give a libpq-style URL: it starts `postgresql://`
+    and usually carries `?sslmode=require`. Two things break on that here.
+
+    First, this app talks to Postgres through asyncpg, which needs the `postgresql+asyncpg://`
+    driver prefix. Second, asyncpg does not understand `sslmode` at all -- that is libpq's
+    spelling -- so leaving it on the URL raises "invalid connection option" rather than
+    quietly ignoring it. asyncpg wants TLS passed as a connect argument instead.
+
+    So: add the driver prefix if missing, strip any libpq-only SSL parameters, and turn them
+    into the connect argument asyncpg expects. TLS is still on -- it moves, it does not go
+    away. Anything pointing at localhost stays plaintext, which is what local development and
+    the test suites use.
+
+    The point is that nobody has to hand-edit a password-bearing string correctly under
+    deadline pressure to get a working deploy.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+
+    parts = urlsplit(url)
+    params = dict(parse_qsl(parts.query))
+    sslmode = params.pop("sslmode", None)
+    params.pop("channel_binding", None)  # another libpq-only option Neon likes to include
+    rebuilt = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment))
+
+    host = (parts.hostname or "").lower()
+    is_local = host in _LOCAL_HOSTS
+    wants_ssl = sslmode not in (None, "disable", "allow") or (not is_local and sslmode is None)
+
+    connect_args = {}
+    if wants_ssl and not is_local:
+        connect_args["ssl"] = True
+    return rebuilt, connect_args
+
+
+_url, _connect_args = _normalize_db_url(DATABASE_URL)
+engine = create_async_engine(_url, echo=False, connect_args=_connect_args)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 class Base(DeclarativeBase):

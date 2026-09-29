@@ -23,6 +23,17 @@ async def get_db():
 # column, so CREATE TABLE needs the extension's type to exist first.
 _VECTOR_EXTENSION_STMT = "CREATE EXTENSION IF NOT EXISTS vector"
 
+# pgvector powers exactly one feature: guessing a transaction's category from merchants the
+# user already categorized, by vector similarity. Useful, but not the product -- the account
+# views, forecast, debt simulator and imports never touch it. Requiring it made hosting
+# harder than it needed to be, since not every managed Postgres offers the extension.
+#
+# Set VECTOR_ENABLED=0 to run against a plain Postgres. Categorization then falls back to
+# the rule-based tiers, which is how it behaves for a new user anyway. Default is on, and a
+# missing extension fails loudly at boot with instructions rather than silently degrading --
+# quietly losing a feature you paid attention to is worse than being told.
+VECTOR_ENABLED = os.getenv("VECTOR_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+
 # Idempotent ALTER TABLE / CREATE EXTENSION statements that run after metadata.create_all.
 # Postgres 9.6+ supports ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS.
 # Safe to run on every startup.
@@ -106,12 +117,21 @@ _ONE_TIME_BACKFILLS = [
 
 async def init_db():
     # Step 1: vector extension, its own transaction, before create_all needs it.
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text(_VECTOR_EXTENSION_STMT))
-    except Exception as e:
-        print(f"[migration] FAILED: {_VECTOR_EXTENSION_STMT[:80]} -- {e}")
-        raise
+    if VECTOR_ENABLED:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(_VECTOR_EXTENSION_STMT))
+        except Exception as e:
+            print(
+                "[migration] pgvector is not available on this database.\n"
+                "            It powers similarity-based auto-categorization only; everything\n"
+                "            else works without it. Set VECTOR_ENABLED=0 to start without it,\n"
+                "            or use a Postgres that offers the extension (Neon and Supabase do).\n"
+                f"            underlying error: {e}"
+            )
+            raise
+    else:
+        print("[migration] VECTOR_ENABLED=0 -- skipping pgvector; similarity categorization is off")
 
     # Step 2: create any missing tables.
     async with engine.begin() as conn:
@@ -120,6 +140,9 @@ async def init_db():
     # Step 3: each ALTER/INDEX in its own transaction -- one failure must not silently
     # abort the rest, and any failure must fail boot loudly instead of "booting healthy".
     statements = list(_PHASE10_ALTERS) + list(_PHASE0_ALTERS)
+    if not VECTOR_ENABLED:
+        # These two name the vector type / an hnsw index, so they cannot run without it.
+        statements = [s for s in statements if "vector" not in s.lower()]
     if os.getenv("RUN_DATA_BACKFILLS") == "1":
         print(f"[migration] RUN_DATA_BACKFILLS=1 -- including {len(_ONE_TIME_BACKFILLS)} data backfills")
         statements += _ONE_TIME_BACKFILLS

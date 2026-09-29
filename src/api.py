@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 import json, os, re, uuid, hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
-from src.database import get_db, init_db, async_session
+from src.database import get_db, init_db, async_session, VECTOR_ENABLED
 from src.models import User, Account, ImportBatch, Transaction as TxnModel, CategoryRule, Budget, PlaidItem
 from src.auth import (
     hash_password, verify_password, create_access_token,
@@ -315,7 +315,7 @@ async def import_transactions(request: Request, current_user=Depends(get_current
 
     # Phase 12D: batch-embed merchant strings up front for speed (single ONNX inference).
     # Encrypted-mode transactions skip embedding (no plaintext merchant).
-    if not encrypted and incoming:
+    if VECTOR_ENABLED and not encrypted and incoming:
         merchants_to_embed = [t.get("merchant") or t.get("description") or "" for t in incoming]
         embeddings = embed_many(merchants_to_embed)
     else:
@@ -369,7 +369,8 @@ async def import_transactions(request: Request, current_user=Depends(get_current
                 direction=t.get("direction", "OUT"),
                 is_redacted=t.get("is_redacted", False),
                 category_source=t.get("category_source", "auto"),
-                embedding=embeddings[idx] if idx < len(embeddings) else None,
+                **({"embedding": embeddings[idx] if idx < len(embeddings) else None}
+                   if VECTOR_ENABLED else {}),
             )
         db.add(txn)
 
@@ -439,7 +440,8 @@ async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
             # and the embedding derived from the old plaintext merchant.
             txn.merchant = None
             txn.description = ""
-            txn.embedding = None
+            if VECTOR_ENABLED:
+                txn.embedding = None
             changes["encrypted_data"] = True
         else:
             if "merchant" in data and data["merchant"] is not None:
@@ -448,10 +450,11 @@ async def _apply_txn_patch(txn: TxnModel, data: dict) -> dict:
                     txn.merchant = m[:255]
                     changes["merchant"] = txn.merchant
                     # Phase 12D: re-embed when merchant changes so KNN learns the corrected name.
-                    try:
-                        txn.embedding = embed_text(txn.merchant)
-                    except Exception:
-                        pass  # never block a category fix on embedding failure
+                    if VECTOR_ENABLED:
+                        try:
+                            txn.embedding = embed_text(txn.merchant)
+                        except Exception:
+                            pass  # never block a category fix on embedding failure
             if "description" in data and data["description"] is not None:
                 txn.description = str(data["description"])
                 changes["description"] = txn.description

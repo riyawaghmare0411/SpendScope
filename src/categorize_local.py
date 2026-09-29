@@ -86,6 +86,12 @@ async def categorize_by_neighbors(
     """
     if not merchant or not merchant.strip():
         return None
+    # The query below uses pgvector's <=> operator and casts to ::vector, neither of which
+    # exists without the extension. No match means the caller falls through to its rule
+    # tiers, which is the same path a brand-new user with no history already takes.
+    from src.database import VECTOR_ENABLED
+    if not VECTOR_ENABLED:
+        return None
     qvec = embed_text(merchant.strip())
     # pgvector: <=> is cosine distance (0 = identical, 2 = opposite). We compute
     # similarity = 1 - distance. asyncpg accepts the python list directly when the

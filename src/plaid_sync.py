@@ -19,6 +19,7 @@ from src.models import User, Account, ImportBatch, Transaction
 from src import plaid_service as ps
 from src import plaid_privacy
 from src.embedding_guard import safe_embed
+from src.database import VECTOR_ENABLED
 
 
 def _error_code_from_exception(e: Exception) -> Optional[str]:
@@ -159,7 +160,7 @@ async def sync_item(item, user_id, db, client: Optional[PlaidClientProtocol] = N
         category = sp.get("category", "Other")
         txn_type = sp.get("type", "")
         direction = sp.get("direction", "OUT")
-        embedding = safe_embed(merchant) if merchant else None
+        embedding = safe_embed(merchant) if (VECTOR_ENABLED and merchant) else None
 
         existing = None
         if plaid_txn_id:
@@ -179,7 +180,7 @@ async def sync_item(item, user_id, db, client: Optional[PlaidClientProtocol] = N
             existing.direction = direction
             existing.pending = pending
             existing.currency = currency
-            if embedding is not None:
+            if VECTOR_ENABLED and embedding is not None:
                 existing.embedding = embedding
             updated_count += 1
         else:
@@ -231,7 +232,7 @@ async def sync_item(item, user_id, db, client: Optional[PlaidClientProtocol] = N
                 plaid_transaction_id=t["plaid_transaction_id"],
                 pending=t["pending"],
                 currency=t["currency"],
-                embedding=t["embedding"],
+                **({"embedding": t["embedding"]} if VECTOR_ENABLED else {}),
             )
             db.add(txn)
             inserted += 1

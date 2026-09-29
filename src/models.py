@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -6,7 +7,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector  # Phase 12A: 384-dim merchant embeddings
 
-from src.database import Base
+from src.database import Base, VECTOR_ENABLED
 from src import plan_models  # noqa: F401 -- registers PlanSettings/PlanBalance/RecurringRule/BalanceUpdate/PlanEvent with Base.metadata
 
 
@@ -138,7 +139,14 @@ class Transaction(Base):
     currency: Mapped[Optional[str]] = mapped_column(sa.String(10), nullable=True)
     # Phase 12A: 384-dim merchant embedding for local vector-similarity categorization.
     # Filled at import time + every PATCH that changes the merchant string.
-    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(384), nullable=True)
+    #
+    # Defined only when pgvector is available (VECTOR_ENABLED). The column type compiles to
+    # vector(384) in DDL, so on a Postgres without the extension CREATE TABLE would fail and
+    # the app could not start at all -- which would make one optional convenience feature a
+    # hard hosting requirement. With it off, the column simply does not exist and
+    # categorization falls back to rules; everything else is unaffected.
+    if VECTOR_ENABLED:
+        embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(384), nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

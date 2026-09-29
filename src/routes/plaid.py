@@ -69,8 +69,18 @@ async def plaid_exchange_token(request: Request, current_user=Depends(get_curren
     encrypted = ps.encrypt_token(result["access_token"])
     plaid_item_id = result["item_id"]
 
-    existing = await db.execute(select(PlaidItem).where(PlaidItem.item_id == plaid_item_id))
+    # Scope the lookup to this user. Without the user_id filter, re-linking an item_id that
+    # already belongs to somebody else would overwrite THEIR stored access token and sync
+    # status -- breaking their bank connection and pushing this caller's bank data into their
+    # account on the next sync. A collision across users is not a re-link; it is refused.
+    existing = await db.execute(
+        select(PlaidItem).where(PlaidItem.item_id == plaid_item_id, PlaidItem.user_id == user_id)
+    )
     existing_row = existing.scalar_one_or_none()
+    if existing_row is None:
+        foreign = await db.execute(select(PlaidItem).where(PlaidItem.item_id == plaid_item_id))
+        if foreign.scalar_one_or_none() is not None:
+            raise HTTPException(409, "This bank connection is already linked to another account.")
     if existing_row:
         existing_row.access_token_encrypted = encrypted
         existing_row.sync_status = "active"

@@ -10,7 +10,17 @@ from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict
 
 # --- Config ---
-SECRET_KEY = os.getenv("JWT_SECRET", "spendscope-dev-secret-change-in-production")
+# No fallback value on purpose. A default here means a deploy with the env var missing or
+# misspelled boots looking healthy while every session token is signed with a key that is
+# public in this repo -- anyone could then forge a token for any user. Failing at import is
+# loud and happens before the app can serve a single request.
+_LEGACY_DEV_SECRET = "spendscope-dev-secret-change-in-production"
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY or SECRET_KEY == _LEGACY_DEV_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET must be set to a private value before the app can start. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+    )
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 

@@ -91,7 +91,8 @@ async def sync_item(item, user_id, db, client: Optional[PlaidClientProtocol] = N
                 currency=user_currency,
                 plaid_account_id=plaid_acc_id,
                 plaid_item_id=item.id,
-                mask=acc.get("mask"),
+                # mask deliberately not stored -- Plaid's last-4 never leaves Plaid. The
+                # column still exists but is never populated or returned (Phase 0, BP-ACCT).
                 subtype=acc.get("subtype"),
                 credit_limit=balances.get("limit"),
                 current_balance=balances.get("current"),
@@ -102,7 +103,7 @@ async def sync_item(item, user_id, db, client: Optional[PlaidClientProtocol] = N
             await db.flush()
         else:
             # Refresh Plaid-sourced fields. Leave user-editable fields (due_day, name) alone.
-            account.mask = acc.get("mask") or account.mask
+            account.mask = None  # never persist Plaid's last-4; see the create path above
             account.subtype = acc.get("subtype") or account.subtype
             account.credit_limit = balances.get("limit") if balances.get("limit") is not None else account.credit_limit
             account.current_balance = balances.get("current") if balances.get("current") is not None else account.current_balance

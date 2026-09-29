@@ -74,10 +74,6 @@ _PHASE0_ALTERS = [
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_as_of TIMESTAMPTZ",
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS term_months INTEGER",
     "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_source VARCHAR(20)",
-    "UPDATE accounts SET counts_as_cash = TRUE WHERE counts_as_cash IS NULL AND account_type IN ('checking','savings')",
-    "UPDATE accounts SET counts_as_cash = FALSE WHERE counts_as_cash IS NULL",
-    # mask is dropped from every API response as of Phase 0 (BP-ACCT) -- clear existing values.
-    "UPDATE accounts SET mask = NULL WHERE mask IS NOT NULL",
     # Disconnecting a Plaid item must keep the account + its transactions, not cascade-delete them.
     "ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_plaid_item_id_fkey",
     "ALTER TABLE accounts ADD CONSTRAINT accounts_plaid_item_id_fkey FOREIGN KEY (plaid_item_id) REFERENCES plaid_items(id) ON DELETE SET NULL",
@@ -85,8 +81,25 @@ _PHASE0_ALTERS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_transactions_user_plaid_transaction_id ON transactions(user_id, plaid_transaction_id) WHERE plaid_transaction_id IS NOT NULL",
     "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pending BOOLEAN DEFAULT FALSE",
     "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(10)",
-    "UPDATE transactions t SET currency = a.currency FROM accounts a WHERE t.account_id = a.id AND t.currency IS NULL",
     "ALTER TABLE budgets ADD COLUMN IF NOT EXISTS currency VARCHAR(10)",
+]
+
+# One-time DATA backfills, deliberately NOT run on every boot.
+#
+# The statements above only add columns/indexes: idempotent, cheap, safe to re-run on every
+# start. These rewrite rows. Running them on every boot means every deploy -- and every
+# automatic restart, of which railway.json allows ten on failure -- issues a full-table write
+# over real financial data, and a failure partway through the loop leaves the set half
+# applied. They exist to populate columns added by Phase 0 on a database that predates them,
+# which is a thing you do once.
+#
+# Run them deliberately by starting the app once with RUN_DATA_BACKFILLS=1, then remove it.
+_ONE_TIME_BACKFILLS = [
+    "UPDATE accounts SET counts_as_cash = TRUE WHERE counts_as_cash IS NULL AND account_type IN ('checking','savings')",
+    "UPDATE accounts SET counts_as_cash = FALSE WHERE counts_as_cash IS NULL",
+    # mask is dropped from every API response as of Phase 0 (BP-ACCT) -- clear existing values.
+    "UPDATE accounts SET mask = NULL WHERE mask IS NOT NULL",
+    "UPDATE transactions t SET currency = a.currency FROM accounts a WHERE t.account_id = a.id AND t.currency IS NULL",
     "UPDATE budgets b SET currency = u.currency FROM users u WHERE b.user_id = u.id AND b.currency IS NULL",
 ]
 
@@ -106,7 +119,12 @@ async def init_db():
 
     # Step 3: each ALTER/INDEX in its own transaction -- one failure must not silently
     # abort the rest, and any failure must fail boot loudly instead of "booting healthy".
-    for stmt in _PHASE10_ALTERS + _PHASE0_ALTERS:
+    statements = list(_PHASE10_ALTERS) + list(_PHASE0_ALTERS)
+    if os.getenv("RUN_DATA_BACKFILLS") == "1":
+        print(f"[migration] RUN_DATA_BACKFILLS=1 -- including {len(_ONE_TIME_BACKFILLS)} data backfills")
+        statements += _ONE_TIME_BACKFILLS
+
+    for stmt in statements:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(stmt))

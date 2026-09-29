@@ -231,14 +231,16 @@ async def change_password(request: Request, current_user=Depends(get_current_use
 # --- Transaction Endpoints ---
 
 @app.get("/api/transactions")
-async def get_transactions(user=Depends(get_optional_user), db=Depends(get_db)):
-    if user:
-        user_id = uuid.UUID(user["user_id"])
-        result = await db.execute(
-            select(TxnModel).where(TxnModel.user_id == user_id).order_by(TxnModel.date.desc())
-        )
-        txns = result.scalars().all()
-        return [{
+async def get_transactions(current_user=Depends(get_current_user), db=Depends(get_db)):
+    # Auth is required. This route previously accepted anonymous callers and fell back to a
+    # JSON file on disk, which on a public URL served whatever transactions that file held to
+    # anyone who asked. Transactions are per-user financial data; there is no anonymous view.
+    user_id = uuid.UUID(current_user["user_id"])
+    result = await db.execute(
+        select(TxnModel).where(TxnModel.user_id == user_id).order_by(TxnModel.date.desc())
+    )
+    txns = result.scalars().all()
+    return [{
             "date_iso": t.date.isoformat(),
             "description": t.description,
             "merchant": t.merchant,
@@ -256,13 +258,6 @@ async def get_transactions(user=Depends(get_optional_user), db=Depends(get_db)):
             "import_batch_id": str(t.import_batch_id) if t.import_batch_id else None,
             "account_id": str(t.account_id) if t.account_id else None,
         } for t in txns]
-
-    # Fallback: read from JSON file (backward compat)
-    json_path = DATA_DIR / "transactions_frontend.json"
-    if json_path.exists():
-        with open(json_path, 'r') as f:
-            return json.load(f)
-    return {"error": "No data found. Please upload a bank statement."}
 
 
 @app.post("/api/transactions/import")

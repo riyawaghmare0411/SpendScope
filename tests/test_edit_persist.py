@@ -7,7 +7,7 @@ async def main():
     email = f"editfix{int(time.time())}@example.com"
     try:
         async with httpx.AsyncClient(timeout=30.0) as c:
-            r = await c.post(f"{BASE}/api/auth/signup", json={"email": email, "password": "test1234", "name": "X", "country": "GB", "currency": "GBP"})
+            r = await c.post(f"{BASE}/api/auth/signup", json={"email": email, "password": "testpassword123", "name": "X", "country": "GB", "currency": "GBP"})
             H = {"Authorization": f"Bearer {r.json()['access_token']}"}
             await c.post(f"{BASE}/api/transactions/import", headers=H, json={
                 "transactions": [{"date_iso": "2026-02-27", "merchant": "GO SOUTH COAST", "category": "Other", "money_out": 2.60, "direction": "OUT"}],

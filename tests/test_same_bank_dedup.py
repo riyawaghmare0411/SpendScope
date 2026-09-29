@@ -21,7 +21,7 @@ async def main():
         async with httpx.AsyncClient(timeout=60.0) as c:
             # 1. Fresh user
             r = await c.post(f"{BASE}/api/auth/signup", json={
-                "email": email, "password": "test1234", "name": "SameBank",
+                "email": email, "password": "testpassword123", "name": "SameBank",
                 "country": "GB", "currency": "GBP",
             })
             if not step("signup", r.status_code == 200): sys.exit(1)

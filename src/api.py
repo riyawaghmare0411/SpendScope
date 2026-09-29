@@ -451,8 +451,12 @@ async def update_transaction(txn_id: str, request: Request, current_user=Depends
        Phase 11A: replaces the older /category-only PATCH."""
     data = await request.json()
     user_id = uuid.UUID(current_user["user_id"])
+    try:
+        tid = uuid.UUID(txn_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid transaction id")
     result = await db.execute(
-        select(TxnModel).where(TxnModel.id == uuid.UUID(txn_id), TxnModel.user_id == user_id)
+        select(TxnModel).where(TxnModel.id == tid, TxnModel.user_id == user_id)
     )
     txn = result.scalar_one_or_none()
     if not txn:
@@ -518,8 +522,12 @@ async def get_import_batches(current_user=Depends(get_current_user), db=Depends(
 @app.delete("/api/import-batches/{batch_id}")
 async def delete_import_batch(batch_id: str, current_user=Depends(get_current_user), db=Depends(get_db)):
     user_id = uuid.UUID(current_user["user_id"])
+    try:
+        bid = uuid.UUID(batch_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid import batch id")
     result = await db.execute(
-        select(ImportBatch).where(ImportBatch.id == uuid.UUID(batch_id), ImportBatch.user_id == user_id)
+        select(ImportBatch).where(ImportBatch.id == bid, ImportBatch.user_id == user_id)
     )
     batch = result.scalar_one_or_none()
     if not batch:

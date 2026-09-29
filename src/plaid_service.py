@@ -165,6 +165,7 @@ def remove_item(access_token: str) -> bool:
 
 # Cache of public keys fetched from Plaid (kid -> JWK dict)
 _jwk_cache: dict = {}
+_JWK_CACHE_MAX = 32  # Plaid rotates a small number of signing keys; 32 is far above real need
 
 
 def verify_webhook(jwt_header: str, body_bytes: bytes) -> dict:
@@ -194,13 +195,17 @@ def verify_webhook(jwt_header: str, body_bytes: bytes) -> dict:
     if not kid:
         raise ValueError("Missing kid in JWT header")
 
-    # Fetch JWK if not cached
+    # Fetch JWK if not cached. /webhooks/plaid is public by design, and `kid` comes straight
+    # off the caller's header, so an unbounded cache keyed on it lets anyone grow this dict
+    # and burn Plaid API calls one request at a time. Cap it and drop the oldest entry.
     jwk = _jwk_cache.get(kid)
     if jwk is None:
         client = get_plaid_client()
         from plaid.model.webhook_verification_key_get_request import WebhookVerificationKeyGetRequest
         resp = client.webhook_verification_key_get(WebhookVerificationKeyGetRequest(key_id=kid))
         jwk = resp["key"].to_dict() if hasattr(resp["key"], "to_dict") else resp["key"]
+        if len(_jwk_cache) >= _JWK_CACHE_MAX:
+            _jwk_cache.pop(next(iter(_jwk_cache)))
         _jwk_cache[kid] = jwk
 
     # Verify JWT signature

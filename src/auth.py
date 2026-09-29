@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # --- Config ---
 # No fallback value on purpose. A default here means a deploy with the env var missing or
@@ -81,11 +81,16 @@ async def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(
 
 
 # --- Pydantic schemas ---
+MIN_PASSWORD_LENGTH = 10
+
+
 class SignupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: str
-    password: str
+    # Enforced at the schema so it cannot be bypassed by any caller. This app holds linked
+    # bank data; a one-character password on a public URL is an open door.
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
     name: str
     country: str = ""
     currency: str = "USD"

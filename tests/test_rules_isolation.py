@@ -25,14 +25,14 @@ async def main():
         async with httpx.AsyncClient(timeout=30.0) as c:
             # 1. Sign up user A and user B
             r = await c.post(f"{BASE}/api/auth/signup", json={
-                "email": email_a, "password": "test1234", "name": "RulesA", "country": "GB", "currency": "GBP",
+                "email": email_a, "password": "testpassword123", "name": "RulesA", "country": "GB", "currency": "GBP",
             })
             if not step("signup user A", r.status_code == 200, f"HTTP {r.status_code}"):
                 print(f"     body: {r.text[:200]}"); sys.exit(1)
             HA = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
             r = await c.post(f"{BASE}/api/auth/signup", json={
-                "email": email_b, "password": "test1234", "name": "RulesB", "country": "GB", "currency": "GBP",
+                "email": email_b, "password": "testpassword123", "name": "RulesB", "country": "GB", "currency": "GBP",
             })
             if not step("signup user B", r.status_code == 200, f"HTTP {r.status_code}"):
                 print(f"     body: {r.text[:200]}"); sys.exit(1)

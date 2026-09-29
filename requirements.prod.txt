@@ -28,9 +28,14 @@ pyasn1==0.6.3
 six==1.17.0
 greenlet==3.3.2
 # Phase 9 -- Plaid bank sync
-plaid-python==18.4.0
+plaid-python==39.1.0
 cryptography==46.0.6
-PyJWT==2.10.1
+PyJWT==2.12.1
 # Phase 12 -- local vector categorization (replaces Claude API)
 fastembed==0.7.4
 pgvector==0.4.1
+# zoneinfo needs a tz database at runtime. src/timeutil.py resolves every user's
+# "today" through ZoneInfo, and the plan endpoints call it on every request, so a slim
+# image without system tz data would 500 the whole plan engine. Pinning it here removes
+# the dependency on whatever the base image happens to ship.
+tzdata==2025.3

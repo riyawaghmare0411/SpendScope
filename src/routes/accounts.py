@@ -10,6 +10,7 @@ from datetime import date
 from src.database import get_db
 from src.models import User, Account, ImportBatch, Transaction as TxnModel
 from src.auth import get_current_user
+from src import plaid_privacy
 
 router = APIRouter()
 
@@ -38,7 +39,9 @@ def _account_to_dict(a: Account, txn_count: int = 0) -> dict:
         "balance_source": a.balance_source,
         "is_plaid": a.plaid_item_id is not None,
         "plaid_item_id": str(a.plaid_item_id) if a.plaid_item_id else None,
-        "plaid_account_id": a.plaid_account_id,
+        # Plaid's real account_id never leaves the server. Clients key off "id" (our own
+        # UUID); this is a stable one-way handle for display/support only.
+        "plaid_account_id": plaid_privacy.opaque_handle(a.plaid_account_id) if a.plaid_account_id else None,
         "transaction_count": txn_count,
     }
 

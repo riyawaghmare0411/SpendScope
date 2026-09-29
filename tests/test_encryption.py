@@ -65,7 +65,7 @@ async def main():
         # 1. Signup (plain -- matches the real UI: encryption is enabled after
         # signup via /api/auth/encryption-setup, not at signup time).
         r = await c.post(f"{BASE}/api/auth/signup", json={
-            "email": email, "password": "test1234", "name": "EncTest",
+            "email": email, "password": "testpassword123", "name": "EncTest",
             "country": "GB", "currency": "GBP",
         })
         if not step("signup", r.status_code == 200, f"HTTP {r.status_code}"):
@@ -78,7 +78,7 @@ async def main():
         # 2. Enable encryption via the REAL keyManager.setupEncryption(password) --
         # generates salt + DEK, wraps under the password KEK and under 10 real
         # recovery-code KEKs (generateRecoveryCodes(), not a test stand-in).
-        password = "test1234"
+        password = "testpassword123"
         r = call_js("setup", password=password)
         if not step("node harness: setupEncryption(password)", r.get("ok"), r.get("error", "")):
             sys.exit(1)
@@ -212,7 +212,7 @@ async def main():
         # sending encrypted: true must be rejected (400).
         email2 = f"enctest-noenc+{int(time.time())}@example.com"
         r = await c.post(f"{BASE}/api/auth/signup", json={
-            "email": email2, "password": "test1234", "name": "NoEncTest",
+            "email": email2, "password": "testpassword123", "name": "NoEncTest",
             "country": "GB", "currency": "GBP",
         })
         if not step("signup (second user, encryption never configured)", r.status_code == 200, f"HTTP {r.status_code}"):

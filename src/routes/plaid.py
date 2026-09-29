@@ -13,7 +13,9 @@ from src.models import User, Account, ImportBatch, Transaction as TxnModel, Plai
 from src.auth import get_current_user
 from src import plaid_service as ps
 from src import plaid_fake
+from src import plaid_privacy
 from src.plaid_sync import sync_item as _sync_plaid_item_impl
+from src.plaid_sync import _error_code_from_exception as _plaid_error_code
 
 router = APIRouter()
 
@@ -41,7 +43,9 @@ async def plaid_link_token(current_user=Depends(get_current_user)):
         token = ps.create_link_token(current_user["user_id"])
         return {"link_token": token}
     except Exception as e:
-        raise HTTPException(500, f"Failed to create link token: {e}")
+        # Never pass Plaid's own error text through -- it can carry request ids and
+        # institution-specific detail. Fixed, mapped copy only.
+        raise HTTPException(502, plaid_privacy.error_copy_for(_plaid_error_code(e)))
 
 
 @router.post("/api/plaid/exchange-token")
@@ -64,7 +68,7 @@ async def plaid_exchange_token(request: Request, current_user=Depends(get_curren
     try:
         result = ps.exchange_public_token(public_token)
     except Exception as e:
-        raise HTTPException(500, f"Token exchange failed: {e}")
+        raise HTTPException(502, plaid_privacy.error_copy_for(_plaid_error_code(e)))
 
     encrypted = ps.encrypt_token(result["access_token"])
     plaid_item_id = result["item_id"]
@@ -160,7 +164,9 @@ async def plaid_list_items(current_user=Depends(get_current_user), db=Depends(ge
     return [
         {
             "id": str(item.id),
-            "item_id": item.item_id,
+            # Plaid's real item_id never leaves the server -- clients operate on "id" (our
+            # own UUID) for every action, so this field is only ever a display/debug handle.
+            "item_id": plaid_privacy.opaque_handle(item.item_id) if item.item_id else None,
             "institution_id": item.institution_id,
             "institution_name": item.institution_name,
             "sync_status": item.sync_status,

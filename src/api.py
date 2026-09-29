@@ -19,6 +19,7 @@ from src.auth import (
 # Phase 12: local-only categorization + stats coach. Zero Anthropic / Claude usage.
 from src.categorize_local import embed_text, embed_many, categorize_by_neighbors
 from src.starter_rules import match_starter_rule
+from src import ratelimit
 
 
 @asynccontextmanager
@@ -70,7 +71,11 @@ async def health(db=Depends(get_db)):
 # --- Auth Endpoints ---
 
 @app.post("/api/auth/signup")
-async def signup(req: SignupRequest, db=Depends(get_db)):
+async def signup(req: SignupRequest, request: Request, db=Depends(get_db)):
+    # Slower than login's allowance: nobody legitimately creates accounts in bulk, and this
+    # is the route that writes rows.
+    if not ratelimit.is_exempt(request):
+        ratelimit.check(ratelimit.client_key(request, "signup-ip"), max_attempts=5, window_seconds=3600)
     # Check if email already exists
     result = await db.execute(select(User).where(User.email == req.email.lower()))
     if result.scalar_one_or_none():
@@ -104,7 +109,16 @@ async def signup(req: SignupRequest, db=Depends(get_db)):
 
 
 @app.post("/api/auth/login")
-async def login(req: LoginRequest, db=Depends(get_db)):
+async def login(req: LoginRequest, request: Request, db=Depends(get_db)):
+    # Two dimensions on purpose. The per-address limit stops one machine grinding through
+    # passwords; the per-email limit stops a distributed attempt against one known account,
+    # which the address limit alone would miss entirely.
+    if not ratelimit.is_exempt(request):
+        ratelimit.check(ratelimit.client_key(request, "login-ip"), max_attempts=10, window_seconds=300)
+        ratelimit.check(
+            f"login-email:{req.email.lower()}", max_attempts=10, window_seconds=300,
+            message="Too many sign-in attempts for this account. Please wait and try again.",
+        )
     result = await db.execute(select(User).where(User.email == req.email.lower()))
     user = result.scalar_one_or_none()
     if not user or not verify_password(req.password, user.password_hash):

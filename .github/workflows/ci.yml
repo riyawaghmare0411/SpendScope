@@ -29,6 +29,13 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://spendscope:spendscope_dev@localhost:5432/spendscope
       JWT_SECRET: ci-test-secret-not-for-production
       FASTEMBED_CACHE_PATH: /home/runner/.fastembed_cache
+      PLAID_ENV: fake
+      PLAID_CLIENT_ID: ci-test-plaid-client-id-not-for-production
+      PLAID_SECRET: ci-test-plaid-secret-not-for-production
+      # Throwaway Fernet key, generated solely for this CI job -- never used for real
+      # tokens or real data. Just needs to be a structurally valid Fernet key so
+      # encrypt_token() doesn't raise; is_plaid_configured() also requires it be set.
+      PLAID_TOKEN_ENCRYPTION_KEY: 5BOZXTj7i_9PSMvDMnAms10QQuqVkrGRu5SyxkPWP3s=
 
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +98,12 @@ jobs:
 
       - name: Run tests/test_rules_isolation.py
         run: python tests/test_rules_isolation.py
+
+      - name: Run tests/test_plan_oracle.py
+        run: python tests/test_plan_oracle.py
+
+      - name: Run tests/test_plaid_fake_sync.py
+        run: python tests/test_plaid_fake_sync.py
 
       - name: Dump app.log on failure
         if: failure()

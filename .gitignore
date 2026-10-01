@@ -14,3 +14,9 @@ frontend/node_modules/
 frontend/dist/
 # One-off deploy scripts (kept locally, not committed)
 _*.py
+
+# Database dumps. These contain real financial rows; a stray `git add -A` would put them
+# in history permanently, where removing them means rewriting published commits.
+_backups/
+*.sql
+*.dump

@@ -97,7 +97,10 @@ def decrypt_token(ciphertext: str) -> str:
 def create_link_token(user_id: str, country_codes: list[str] = None) -> str:
     """Step 1: Create link_token for frontend to open Plaid Link modal."""
     client = get_plaid_client()
-    countries = [CountryCode(c) for c in (country_codes or ["GB", "US"])]
+    # PLAID_COUNTRY_CODES (e.g. "US") limits Link to the countries the Plaid plan covers; the
+    # free Trial plan is US/Canada only and Plaid rejects a link token that asks for GB.
+    env_codes = [c.strip().upper() for c in os.getenv("PLAID_COUNTRY_CODES", "").split(",") if c.strip()]
+    countries = [CountryCode(c) for c in (country_codes or env_codes or ["GB", "US"])]
     request = LinkTokenCreateRequest(
         products=[Products("transactions")],
         client_name="SpendScope",

@@ -51,7 +51,26 @@ def _normalize_db_url(url: str) -> tuple[str, dict]:
 
 
 _url, _connect_args = _normalize_db_url(DATABASE_URL)
-engine = create_async_engine(_url, echo=False, connect_args=_connect_args)
+engine = create_async_engine(
+    _url,
+    echo=False,
+    connect_args=_connect_args,
+    # Serverless Postgres (Neon) suspends its compute after a few idle minutes and closes every
+    # open connection when it does. The pool does not notice: it keeps the dead connection and
+    # hands it to the next request, which fails with "connection is closed" -- in production this
+    # crashed a signup that arrived ten minutes after the previous request. pre_ping runs a
+    # trivial round-trip before each checkout and transparently swaps a dead connection for a
+    # fresh one; the cost is one extra round-trip per checkout, negligible at this scale.
+    pool_pre_ping=True,
+    # Belt and braces: retire connections well before Neon's idle suspension would kill them,
+    # so most checkouts never meet a dead one in the first place.
+    pool_recycle=240,
+    # SQLAlchemy otherwise prints bound parameters in its error messages, which put a user's
+    # email address into the server logs on that same crash. Parameters are user data --
+    # emails, merchants, amounts -- and logs are not the place for them. The statement itself
+    # is still logged, which is what debugging actually needs.
+    hide_parameters=True,
+)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 class Base(DeclarativeBase):

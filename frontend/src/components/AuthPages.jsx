@@ -20,7 +20,7 @@ export const AuthPages = ({ t, mode, setMode, authPage, setAuthPage, authError, 
     const AuthSignupForm = () => {
       const [name, setName] = useState(''), [email, setEmail] = useState(''), [password, setPassword] = useState(''), [country, setCountry] = useState('United States'), [curr, setCurr] = useState('USD')
       return (
-        <form onSubmit={e => { e.preventDefault(); if (password.length < 6) { setAuthError('Password must be at least 6 characters'); return }; handleSignup(email, password, name, country, curr) }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <form onSubmit={e => { e.preventDefault(); if (password.length < 10) { setAuthError('Password must be at least 10 characters'); return }; handleSignup(email, password, name, country, curr) }} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Name</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Your name" style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
@@ -31,7 +31,7 @@ export const AuthPages = ({ t, mode, setMode, authPage, setAuthPage, authError, 
           </div>
           <div>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: t.textLight, marginBottom: 6 }}>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Min 6 characters" minLength={6} style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="At least 10 characters" minLength={10} style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: `1px solid ${t.border}`, background: 'rgba(255,255,255,0.05)', color: '#ffffff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <div style={{ flex: 1 }}>

@@ -26,6 +26,32 @@ import ProfileModal from './components/ProfileModal'
 import EncryptionSettings from './components/EncryptionSettings'
 import * as planApi from './lib/planApi'
 
+// Turn a failed auth response into one sentence a person can act on.
+//
+// The server answers in three shapes, and reading every one as `data.detail` showed people
+// garbage. A handled error is JSON with a string detail -- fine. A validation error is JSON
+// whose detail is an ARRAY, which became the literal text "[object Object]". A crash is plain
+// text, not JSON, so parsing it threw and surfaced a JSON syntax error -- after which a user
+// whose signup had failed would reasonably assume it worked and try to log in.
+const readAuthError = async (r, fallback) => {
+  let data = null
+  try { data = await r.json() } catch { /* plain-text body, e.g. a 500 */ }
+  const detail = data && data.detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail) && detail.length) {
+    const first = detail[0] || {}
+    const field = Array.isArray(first.loc) ? first.loc[first.loc.length - 1] : ''
+    if (field === 'password' && first.type === 'string_too_short') {
+      return `Password must be at least ${first.ctx?.min_length ?? 10} characters.`
+    }
+    if (field === 'email') return 'Please enter a valid email address.'
+    return first.msg || fallback
+  }
+  if (r.status === 429) return 'Too many attempts. Please wait a few minutes and try again.'
+  if (r.status >= 500) return 'Something went wrong on our side. Please try again in a moment.'
+  return fallback
+}
+
 // ========== MAIN APP ==========
 function App() {
   const [data, setData] = useState([]), [loading, setLoading] = useState(true), [page, setPage] = useState(() => (
@@ -91,8 +117,8 @@ function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       })
+      if (!r.ok) throw new Error(await readAuthError(r, 'Could not sign you in. Please try again.'))
       const data = await r.json()
-      if (!r.ok) throw new Error(data.detail || 'Login failed')
       // E2: unlock the DEK as part of login. A failed unlock must NOT block login --
       // that would lock the user out of their entire account over a key problem. Instead
       // login proceeds and the failure surfaces as a loud, persistent decryptError banner.
@@ -129,8 +155,8 @@ function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, name, country, currency: curr })
       })
+      if (!r.ok) throw new Error(await readAuthError(r, 'Could not create your account. Please try again.'))
       const data = await r.json()
-      if (!r.ok) throw new Error(data.detail || 'Signup failed')
       localStorage.setItem('spendscope_token', data.access_token)
       localStorage.setItem('spendscope_user', JSON.stringify(data.user))
       localStorage.setItem('spendscope_name', name)

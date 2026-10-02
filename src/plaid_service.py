@@ -108,6 +108,15 @@ def create_link_token(user_id: str, country_codes: list[str] = None) -> str:
     webhook_url = os.getenv("PLAID_WEBHOOK_URL", "").strip()
     if webhook_url:
         request.webhook = webhook_url
+    # Most large US banks (Chase, Bank of America, Wells Fargo, Capital One, Citi) authenticate
+    # over OAuth: the user signs in on the bank's own site, and the bank then has to send them
+    # back somewhere. Without a redirect_uri, desktop browsers fall back to a popup, but mobile
+    # cannot -- those banks simply fail to connect on a phone. Plaid rejects the request outright
+    # if this value is not also registered under Allowed redirect URIs in the Plaid dashboard,
+    # so it is opt-in: unset means no OAuth redirect, which is right for local development.
+    redirect_uri = os.getenv("PLAID_REDIRECT_URI", "").strip()
+    if redirect_uri:
+        request.redirect_uri = redirect_uri
     response = client.link_token_create(request)
     return response["link_token"]
 

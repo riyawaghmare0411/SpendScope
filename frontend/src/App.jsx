@@ -28,7 +28,11 @@ import * as planApi from './lib/planApi'
 
 // ========== MAIN APP ==========
 function App() {
-  const [data, setData] = useState([]), [loading, setLoading] = useState(true), [page, setPage] = useState('overview'), [mode, setMode] = useState('dark')
+  const [data, setData] = useState([]), [loading, setLoading] = useState(true), [page, setPage] = useState(() => (
+    // Coming back from a bank's OAuth sign-in: open on Accounts, which holds the Plaid
+    // connector, so it can resume the session. Landing anywhere else would strand it.
+    new URLSearchParams(window.location.search).has('oauth_state_id') ? 'accounts' : 'overview'
+  )), [mode, setMode] = useState('dark')
   const [searchTerm, setSearchTerm] = useState(''), [filterCat, setFilterCat] = useState('All'), [dragOver, setDragOver] = useState(false), [insightsSeen, setInsightsSeen] = useState(false)
   const [userName, setUserName] = useState(() => localStorage.getItem('spendscope_name') || ''), [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('spendscope_name'))
   const [currency, setCurrency] = useState('$'), [chartRange, setChartRange] = useState('All'), [globalRange, setGlobalRange] = useState('All')

@@ -8,10 +8,34 @@ import { API_BASE } from '../constants'
  * causes the "Plaid script embedded more than once" warning and re-creates
  * the Plaid factory unnecessarily). Auto-opens as soon as `ready` flips true.
  */
-const PlaidLauncher = ({ linkToken, onSuccess, onExit }) => {
-  const { open, ready } = usePlaidLink({ token: linkToken, onSuccess, onExit })
+const PlaidLauncher = ({ linkToken, onSuccess, onExit, receivedRedirectUri }) => {
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess,
+    onExit,
+    // Only set when resuming after a bank's OAuth sign-in. Passing it on a fresh launch makes
+    // Plaid try to resume a session that does not exist.
+    ...(receivedRedirectUri ? { receivedRedirectUri } : {}),
+  })
   useEffect(() => { if (ready) open() }, [ready, open])
   return null
+}
+
+// OAuth banks send the user to their own site and back, which reloads this page and wipes all
+// React state. Plaid can only resume the session with the SAME link token that started it, so
+// it has to survive the round trip somewhere. localStorage rather than sessionStorage because a
+// bank's own mobile app can hand the user back in a new tab, which sessionStorage does not
+// follow. A link token is short-lived and grants nothing on its own, and it is cleared the
+// moment the flow ends either way.
+const LINK_TOKEN_KEY = 'spendscope_plaid_link_token'
+const isOAuthReturn = () => new URLSearchParams(window.location.search).has('oauth_state_id')
+const readStoredLinkToken = () => { try { return localStorage.getItem(LINK_TOKEN_KEY) } catch { return null } }
+const storeLinkToken = (t) => { try { localStorage.setItem(LINK_TOKEN_KEY, t) } catch { /* private mode */ } }
+const clearLinkToken = () => { try { localStorage.removeItem(LINK_TOKEN_KEY) } catch { /* private mode */ } }
+// Drop the ?oauth_state_id=... from the address bar once used, so a refresh does not try to
+// resume a session that has already finished.
+const clearOAuthParams = () => {
+  if (isOAuthReturn()) window.history.replaceState(null, '', window.location.pathname === '/plaid-oauth' ? '/' : window.location.pathname)
 }
 
 /**
@@ -28,11 +52,29 @@ const PlaidLauncher = ({ linkToken, onSuccess, onExit }) => {
  */
 export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete, onSessionExpired }) => {
   const [items, setItems] = useState([])
-  const [linkToken, setLinkToken] = useState(null)
+  // Lazy initialisers, not an effect: when this mounts on the way back from a bank's OAuth
+  // sign-in, resume immediately with the token that started the session.
+  const [linkToken, setLinkToken] = useState(() => (isOAuthReturn() ? readStoredLinkToken() : null))
+  const [receivedRedirectUri, setReceivedRedirectUri] = useState(
+    () => (isOAuthReturn() && readStoredLinkToken() ? window.location.href : null)
+  )
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(null) // item id being synced
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(() => (
+    isOAuthReturn() && !readStoredLinkToken()
+      ? 'Your bank sign-in could not be resumed. Please try connecting again.'
+      : null
+  ))
   const [unavailable, setUnavailable] = useState(false)
+
+  // Whatever way a Plaid session ends, forget it, so the next "Connect" starts clean instead
+  // of trying to resume a finished one.
+  const endPlaidSession = useCallback(() => {
+    clearLinkToken()
+    clearOAuthParams()
+    setReceivedRedirectUri(null)
+    setLinkToken(null)
+  }, [])
 
   const fetchItems = useCallback(async () => {
     if (!authToken) return
@@ -67,6 +109,8 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete, onSess
       if (!r.ok) { setError(`Could not start bank connection (HTTP ${r.status})`); setLoading(false); return }
       const data = await r.json()
       if (!data.link_token) { setError('Bank connection unavailable -- missing token'); setLoading(false); return }
+      storeLinkToken(data.link_token)
+      setReceivedRedirectUri(null)
       setLinkToken(data.link_token)
     } catch (e) {
       setError(`Network error: ${e.message || 'unable to reach server'}`)
@@ -95,10 +139,10 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete, onSess
       setError('Network error during exchange')
     }
     setLoading(false)
-    setLinkToken(null)
-  }, [authHeaders, fetchItems, onSyncComplete])
+    endPlaidSession()
+  }, [authHeaders, fetchItems, onSyncComplete, endPlaidSession])
 
-  const onPlaidExit = useCallback(() => { setLoading(false); setLinkToken(null) }, [])
+  const onPlaidExit = useCallback(() => { setLoading(false); endPlaidSession() }, [endPlaidSession])
 
   const syncOne = async (itemId) => {
     setSyncing(itemId)
@@ -162,7 +206,7 @@ export const PlaidConnect = ({ t, authToken, authHeaders, onSyncComplete, onSess
 
   return (
     <div style={{ ...glass, marginBottom: '20px' }}>
-      {linkToken && <PlaidLauncher linkToken={linkToken} onSuccess={onPlaidSuccess} onExit={onPlaidExit} />}
+      {linkToken && <PlaidLauncher linkToken={linkToken} onSuccess={onPlaidSuccess} onExit={onPlaidExit} receivedRedirectUri={receivedRedirectUri} />}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length > 0 ? '14px' : '0' }}>
         <div>
           <h3 style={{ fontSize: '16px', fontWeight: 700, color: t.text, margin: '0 0 4px' }}>

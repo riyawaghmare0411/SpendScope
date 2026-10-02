@@ -1,0 +1,17 @@
+# Upload ONLY what the Dockerfile uses. Everything else stays on this machine.
+#
+# Without this file gcloud falls back to .gitignore, which happens to keep .env out --
+# but that is an implicit fallback, and the moment anyone adds a .gcloudignore without
+# re-listing .env, secrets would start shipping to Cloud Build's storage bucket.
+# A whitelist cannot fail that way: nothing uploads unless it is named here.
+#
+# The Dockerfile copies requirements.prod.txt and src/ -- nothing else.
+
+*
+!Dockerfile
+!requirements.prod.txt
+!src/
+!src/**
+
+# Even inside src/, never ship bytecode caches.
+src/**/__pycache__/

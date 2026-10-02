@@ -1,0 +1,29 @@
+// Cloudflare Workers static-assets config for the SpendScope frontend.
+//
+// The frontend is a plain Vite build: static files only, no server code. Workers serves them
+// from Cloudflare's edge; static asset requests are free and do not count toward the Workers
+// request quota.
+//
+// Build first, with the backend address baked in (Vite reads VITE_* at BUILD time, not at
+// runtime -- changing it means rebuilding):
+//   VITE_API_URL=https://spendscope-api-579386639091.us-east1.run.app npm run build
+// then deploy:
+//   npx wrangler deploy
+{
+  "name": "spendscope",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    // The app has no URL router -- every page is client-side state on "/" -- but serving
+    // index.html for unknown paths keeps a bookmarked or mistyped URL from showing a bare 404.
+    "not_found_handling": "single-page-application"
+  },
+  // Served only on the real domain. No *.workers.dev copy and no per-version preview URLs:
+  // a second public address for the same app is one more thing to keep in sync with the
+  // backend's CORS allow-list, and one more place for a stale build to linger.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "spendscope.syn3ra.com", "custom_domain": true }
+  ]
+}
